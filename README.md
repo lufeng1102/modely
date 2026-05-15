@@ -9,7 +9,8 @@
 - 🔄 **Resumable downloads**: Resume interrupted downloads automatically
 - 📁 **Flexible options**: Download entire repositories or specific files
 - 🔐 **Authentication support**: Access private models and datasets with tokens
-- 📦 **Minimal dependencies**: Only requires `requests` and `tqdm`
+- 📦 **Official SDKs**: Uses `huggingface-hub` official SDK for reliable downloads
+- 📦 **Minimal dependencies**: Only requires `requests`, `tqdm`, and `huggingface-hub`
 - 💾 **Smart caching**: Avoid duplicate downloads with unified cache system
 - 🗂️ **Cache management**: CLI commands to view, list, and clean cache
 
@@ -217,6 +218,7 @@ Options:
 - Python 3.10 or higher
 - requests >= 2.25.0
 - tqdm >= 4.62.0
+- huggingface-hub >= 0.20.0
 
 ## License
 
