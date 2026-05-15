@@ -71,11 +71,17 @@ def get_dataset_cache_root(cache_dir: Optional[str] = None):
     return dataset_cache
 
 
-def get_file_download_url(model_id: str, file_path: str, revision: str, endpoint: Optional[str] = None):
+def get_file_download_url(model_id: str, file_path: str, revision: str, repo_type: str = REPO_TYPE_MODEL, endpoint: Optional[str] = None):
     """Format file download url according to `model_id`, `revision` and `file_path`."""
+    # Preserve '/' in model_id for URL path; encode '/' in file_path for query string
+    model_id = urllib.parse.quote(model_id, safe='/')
     file_path = urllib.parse.quote_plus(file_path)
     revision = urllib.parse.quote_plus(revision)
-    download_url_template = '{endpoint}/api/v1/models/{model_id}/repo?Revision={revision}&FilePath={file_path}'
+    # Use the correct API endpoint based on repo_type
+    if repo_type == REPO_TYPE_DATASET:
+        download_url_template = '{endpoint}/api/v1/datasets/{model_id}/repo?Revision={revision}&FilePath={file_path}'
+    else:
+        download_url_template = '{endpoint}/api/v1/models/{model_id}/repo?Revision={revision}&FilePath={file_path}'
     if not endpoint:
         endpoint = get_endpoint()
     return download_url_template.format(
@@ -88,13 +94,25 @@ def get_file_download_url(model_id: str, file_path: str, revision: str, endpoint
 
 def get_model_files_url(model_id: str, revision: str, endpoint: Optional[str] = None):
     """Get the URL to list model files."""
-    model_id_encoded = urllib.parse.quote_plus(model_id)
-    revision = urllib.parse.quote_plus(revision) if revision else 'master'
-    
+    # Use quote with '/' as safe char to preserve path separator
+    model_id_encoded = urllib.parse.quote(model_id, safe='/')
+    revision = urllib.parse.quote(revision, safe='') if revision else 'master'
+
     if not endpoint:
         endpoint = get_endpoint()
-    
+
     return f"{endpoint}/api/v1/models/{model_id_encoded}/repo/files?Revision={revision}"
+
+
+def get_dataset_files_url(dataset_id: str, revision: str, endpoint: Optional[str] = None):
+    """Get the URL to list dataset files."""
+    dataset_id_encoded = urllib.parse.quote(dataset_id, safe='/')
+    revision = urllib.parse.quote(revision, safe='') if revision else 'master'
+
+    if not endpoint:
+        endpoint = get_endpoint()
+
+    return f"{endpoint}/api/v1/datasets/{dataset_id_encoded}/repo/files?Revision={revision}"
 
 
 def file_integrity_validation(file_path: str, expected_hash: str):
@@ -402,10 +420,10 @@ class HubApi:
         """Get endpoint for reading repository."""
         return self.endpoint
     
-    def get_valid_revision(self, repo_id: str, revision: str = None, cookies=None, endpoint=None):
+    def get_valid_revision(self, repo_id: str, revision: str = None, cookies=None, endpoint=None, repo_type: str = REPO_TYPE_MODEL):
         """Get the valid revision of a repository."""
         if not revision:
-            revision = DEFAULT_MODEL_REVISION
+            revision = DEFAULT_DATASET_REVISION if repo_type == REPO_TYPE_DATASET else DEFAULT_MODEL_REVISION
         return revision
     
     def get_model_files(self, model_id: str, revision: str = None, recursive: bool = True, use_cookies=None, endpoint=None):
@@ -462,6 +480,58 @@ class HubApi:
             # Return an empty list if API call fails, as this is an optional feature for single file downloads
             return []
 
+
+    def get_dataset_files(self, dataset_id: str, revision: str = None, recursive: bool = True,
+                          use_cookies=None, endpoint=None):
+        """Get the list of files in a dataset repository."""
+        if not revision:
+            revision = DEFAULT_DATASET_REVISION
+
+        # Get the endpoint and cookies
+        if not endpoint:
+            endpoint = self.endpoint
+        if use_cookies is None:
+            use_cookies = self.get_cookies()
+
+        # Build the URL to get dataset files
+        dataset_files_url = get_dataset_files_url(dataset_id, revision, endpoint)
+
+        try:
+            response = requests.get(
+                dataset_files_url,
+                cookies=use_cookies,
+                timeout=API_FILE_DOWNLOAD_TIMEOUT
+            )
+            response.raise_for_status()
+
+            # Parse the response
+            data = response.json()
+
+            # Extract files from the response
+            files = data.get('Data', {}).get('Files', []) if isinstance(data, dict) else []
+
+            # Format files to match expected structure
+            repo_files = []
+            for file_info in files:
+                if isinstance(file_info, str):
+                    repo_files.append({
+                        'Path': file_info,
+                        'Name': os.path.basename(file_info),
+                        'Type': 'blob',
+                        'Size': 0
+                    })
+                elif isinstance(file_info, dict):
+                    repo_files.append({
+                        'Path': file_info.get('Path', file_info.get('path', file_info.get('name', file_info.get('Name')))),
+                        'Name': file_info.get('Name', os.path.basename(file_info.get('Path', ''))),
+                        'Type': file_info.get('Type', 'blob'),
+                        'Size': file_info.get('Size', file_info.get('size', 0))
+                    })
+
+            return repo_files
+        except Exception as e:
+            print(f"Warning: Could not fetch dataset file list from API: {e}")
+            return []
 
 def model_file_download(
     model_id: str,
@@ -560,7 +630,7 @@ def _repo_file_download(
     endpoint = _api.get_endpoint_for_read(repo_id=repo_id, repo_type=repo_type)
     file_to_download_meta = None
     if repo_type == REPO_TYPE_MODEL:
-        revision = _api.get_valid_revision(repo_id, revision=revision, cookies=cookies, endpoint=endpoint)
+        revision = _api.get_valid_revision(repo_id, revision=revision, cookies=cookies, endpoint=endpoint, repo_type=repo_type)
         # we need to confirm the version is up-to-date
         # we need to get the file list to check if the latest version is cached, if so return, otherwise download
         repo_files = _api.get_model_files(
@@ -578,17 +648,21 @@ def _repo_file_download(
                 file_to_download_meta = repo_file
                 break
     elif repo_type == REPO_TYPE_DATASET:
-        print("Dataset download is not fully implemented in this standalone version.")
-        return temporary_cache_dir
+        revision = _api.get_valid_revision(repo_id, revision=revision, cookies=cookies, endpoint=endpoint, repo_type=repo_type)
+        # For datasets, skip file listing (API may not support it)
+        # Build file metadata directly and try to download
+        file_to_download_meta = {
+            'Path': file_path,
+            'Name': os.path.basename(file_path),
+            'Type': 'blob',
+            'Size': 0
+        }
 
     if file_to_download_meta is None:
         raise Exception(f'The file path: {file_path} not exist in: {repo_id}')
 
     # we need to download again
-    if repo_type == REPO_TYPE_MODEL:
-        url_to_download = get_file_download_url(repo_id, file_path, revision, endpoint)
-    else:
-        raise ValueError(f'Invalid repo type {repo_type}')
+    url_to_download = get_file_download_url(repo_id, file_path, revision, repo_type=repo_type, endpoint=endpoint)
 
     return download_file(url_to_download, file_to_download_meta, temporary_cache_dir, cache, headers, cookies, disable_tqdm=disable_tqdm)
 
@@ -725,7 +799,7 @@ def snapshot_download(
         else:
             cookies = {}
     
-    revision = _api.get_valid_revision(repo_id, revision=revision, cookies=cookies, endpoint=endpoint)
+    revision = _api.get_valid_revision(repo_id, revision=revision, cookies=cookies, endpoint=endpoint, repo_type=repo_type)
     
     # Get the list of files to download
     if repo_type == REPO_TYPE_MODEL:
@@ -737,9 +811,18 @@ def snapshot_download(
             endpoint=endpoint
         )
     else:
-        print("Dataset snapshot download is not fully implemented in this standalone version. "
-              "Use dataset_file_download for individual file downloads.")
-        return local_dir if local_dir else ms_cache.get_repo_cache_dir(repo_id, repo_type, revision, "ms", cache_dir)
+        repo_files = _api.get_dataset_files(
+            dataset_id=repo_id,
+            revision=revision,
+            recursive=True,
+            use_cookies=cookies,
+            endpoint=endpoint
+        )
+        if not repo_files:
+            print("Warning: Unable to list dataset files (API not supported). "
+                  "Dataset snapshot download is not fully supported. "
+                  "Use 'modely-ai ms --repo-type dataset <repo_id> --file <file_path>' to download individual files.")
+            return None
 
     # Process each file and download
     for repo_file in repo_files:

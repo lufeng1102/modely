@@ -95,7 +95,8 @@ def main():
                     local_dir=args.local_dir,
                     token=args.token
                 )
-                print(f"Repository download completed. Files are in: {result}")
+                if result is not None:
+                    print(f"Repository download completed. Files are in: {result}")
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -125,7 +126,8 @@ def main():
                     token=args.token,
                     force_download=args.force_download
                 )
-                print(f"Repository download completed. Files are in: {result}")
+                if result is not None:
+                    print(f"Repository download completed. Files are in: {result}")
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
