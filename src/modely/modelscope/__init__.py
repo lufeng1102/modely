@@ -12,7 +12,6 @@ import io
 import json
 import os
 import shutil
-import sys
 import tempfile
 import urllib
 import uuid
@@ -21,6 +20,7 @@ from functools import partial
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+from modely.common import cache as ms_cache
 import requests
 from requests.adapters import Retry
 from tqdm.auto import tqdm
@@ -55,18 +55,18 @@ def model_id_to_group_owner_name(model_id: str) -> tuple:
     return model_id.split('/')
 
 
-def get_model_cache_root():
+def get_model_cache_root(cache_dir: Optional[str] = None):
     """Get the default model cache directory."""
-    cache_root = os.environ.get('MODELSCOPE_CACHE', os.path.join(Path.home(), '.cache', 'modelscope'))
-    hub_cache = os.path.join(cache_root, 'hub')
-    os.makedirs(hub_cache, exist_ok=True)
-    return hub_cache
+    base = ms_cache.get_source_cache_dir("ms", cache_dir)
+    model_cache = os.path.join(base, "models")
+    os.makedirs(model_cache, exist_ok=True)
+    return model_cache
 
 
-def get_dataset_cache_root():
+def get_dataset_cache_root(cache_dir: Optional[str] = None):
     """Get the default dataset cache directory."""
-    cache_root = os.environ.get('MODELSCOPE_CACHE', os.path.join(Path.home(), '.cache', 'modelscope'))
-    dataset_cache = os.path.join(cache_root, 'datasets')
+    base = ms_cache.get_source_cache_dir("ms", cache_dir)
+    dataset_cache = os.path.join(base, "datasets")
     os.makedirs(dataset_cache, exist_ok=True)
     return dataset_cache
 
@@ -526,8 +526,8 @@ def _repo_file_download(
     if repo_type not in REPO_TYPE_SUPPORT:
         raise ValueError(f'Invalid repo type: {repo_type}, only support: {REPO_TYPE_SUPPORT}')
 
-    # Create temporary cache directory and cache object - only use local_dir or current directory
-    temporary_cache_dir, cache = create_temporary_directory_and_cache(repo_id, local_dir=local_dir, cache_dir=None, repo_type=repo_type)
+    # Create temporary cache directory and cache object
+    temporary_cache_dir, cache = create_temporary_directory_and_cache(repo_id, local_dir=local_dir, cache_dir=cache_dir, repo_type=repo_type)
 
     # For this simplified version, we don't check local_files_only since we don't maintain full cache
     if local_files_only:
@@ -595,19 +595,21 @@ def _repo_file_download(
 
 class BasicCache:
     """Basic cache implementation to mimic ModelFileSystemCache."""
-    
+
     def __init__(self, cache_dir: str, group_or_owner: str = None, name: str = None):
         self.cache_dir = cache_dir
         self.group_or_owner = group_or_owner
         self.name = name
         self.root_location_path = os.path.join(cache_dir, group_or_owner, name) if group_or_owner and name else cache_dir
         os.makedirs(self.root_location_path, exist_ok=True)
-    
+
     def exists(self, file_info: Dict):
         """Check if the file already exists in cache with the same hash."""
-        # For simplicity, we'll always return False to force download
-        # In a full implementation, this would check file hashes
-        return False
+        file_path = file_info.get('Path')
+        if not file_path:
+            return False
+        full_path = os.path.join(self.root_location_path, file_path)
+        return os.path.exists(full_path) and os.path.getsize(full_path) > 0
     
     def get_file_by_path(self, file_path: str):
         """Get file path if it exists in cache."""
@@ -644,15 +646,25 @@ def create_temporary_directory_and_cache(model_id: str,
                                          cache_dir: str = None,
                                          repo_type: str = REPO_TYPE_MODEL):
     """Create temporary directory and cache object."""
-    # Only use local_dir if specified, otherwise use current directory
     if local_dir is not None:
+        # Use specified local directory
         temporary_cache_dir = os.path.join(local_dir, TEMPORARY_FOLDER_NAME)
         cache = BasicCache(local_dir)
     else:
-        # Use current directory as default
-        current_dir = os.getcwd()
-        temporary_cache_dir = os.path.join(current_dir, TEMPORARY_FOLDER_NAME)
-        cache = BasicCache(current_dir)
+        # Use unified cache system
+        # Parse model_id to get owner/name
+        parts = model_id.split('/')
+        if len(parts) == 2:
+            owner, name = parts
+        else:
+            owner, name = "unknown", model_id
+
+        # Get cache directory from unified system
+        base_cache = ms_cache.get_repo_cache_dir(
+            model_id, repo_type, "master", "ms", cache_dir
+        )
+        cache = BasicCache(base_cache)
+        temporary_cache_dir = os.path.join(base_cache, TEMPORARY_FOLDER_NAME)
 
     os.makedirs(temporary_cache_dir, exist_ok=True)
     return temporary_cache_dir, cache
@@ -681,6 +693,7 @@ def snapshot_download(
     cookies: Optional[CookieJar] = None,
     local_dir: Optional[str] = None,
     token: Optional[str] = None,
+    force_download: bool = False,
 ) -> str:
     """Download all files from a repository."""
     if repo_type not in REPO_TYPE_SUPPORT:
@@ -689,12 +702,17 @@ def snapshot_download(
     if revision is None:
         revision = DEFAULT_DATASET_REVISION if repo_type == REPO_TYPE_DATASET else DEFAULT_MODEL_REVISION
 
-    temporary_cache_dir = create_temporary_directory(repo_id, local_dir=local_dir, cache_dir=cache_dir, repo_type=repo_type)
-    
+    # Check if repo is already cached
+    if not force_download:
+        cached_path = ms_cache.get_cached_repo_path(repo_id, repo_type, revision, "ms", cache_dir)
+        if cached_path:
+            print(f"Repository already cached at: {cached_path}")
+            return cached_path
+
     if local_files_only:
         # In a full implementation, we would check if the files already exist in cache
         print("Local files only mode is not fully implemented in this standalone version")
-        return temporary_cache_dir
+        return local_dir if local_dir else ms_cache.get_repo_cache_dir(repo_id, repo_type, revision, "ms", cache_dir)
 
     _api = HubApi(token=token)
     endpoint = _api.get_endpoint_for_read(repo_id, repo_type)
@@ -721,7 +739,7 @@ def snapshot_download(
     else:
         print("Dataset snapshot download is not fully implemented in this standalone version. "
               "Use dataset_file_download for individual file downloads.")
-        return temporary_cache_dir
+        return local_dir if local_dir else ms_cache.get_repo_cache_dir(repo_id, repo_type, revision, "ms", cache_dir)
 
     # Process each file and download
     for repo_file in repo_files:
@@ -750,12 +768,12 @@ def snapshot_download(
             continue  # Continue with other files
 
     print("Snapshot download completed!")
-    
+
     # Return the cache directory path
     if local_dir:
         return os.path.abspath(local_dir)
     else:
-        return temporary_cache_dir
+        return ms_cache.get_repo_cache_dir(repo_id, repo_type, revision, "ms", cache_dir)
 
 
 def main():

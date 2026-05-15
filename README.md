@@ -10,6 +10,8 @@
 - 📁 **Flexible options**: Download entire repositories or specific files
 - 🔐 **Authentication support**: Access private models and datasets with tokens
 - 📦 **Minimal dependencies**: Only requires `requests` and `tqdm`
+- 💾 **Smart caching**: Avoid duplicate downloads with unified cache system
+- 🗂️ **Cache management**: CLI commands to view, list, and clean cache
 
 ## Installation
 
@@ -29,44 +31,44 @@ modely-ai provides a command-line interface with two main subcommands: `hf` for 
 
 Download an entire model repository:
 ```bash
-modely hf bert-base-uncased
+modely-ai hf bert-base-uncased
 ```
 
 Download a specific file from a repository:
 ```bash
-modely hf bert-base-uncased --file config.json
+modely-ai hf bert-base-uncased --file config.json
 ```
 
 Download with specific options:
 ```bash
-modely hf facebook/opt-2.7b --repo-type model --revision v1.1.0 --local-dir ./models
+modely-ai hf facebook/opt-2.7b --repo-type model --revision v1.1.0 --local-dir ./models
 ```
 
 Download from a private repository:
 ```bash
-modely hf username/private-repo --token YOUR_HUGGINGFACE_TOKEN
+modely-ai hf username/private-repo --token YOUR_HUGGINGFACE_TOKEN
 ```
 
 #### Download from ModelScope
 
 Download an entire model repository:
 ```bash
-modely ms owner/model-name
+modely-ai ms owner/model-name
 ```
 
 Download a specific file:
 ```bash
-modely ms owner/model-name --file config.json
+modely-ai ms owner/model-name --file config.json
 ```
 
 Download a dataset:
 ```bash
-modely ms owner/dataset-name --repo-type dataset
+modely-ai ms owner/dataset-name --repo-type dataset
 ```
 
 Download with specific options:
 ```bash
-modely ms owner/model-name --revision main --local-dir ./models
+modely-ai ms owner/model-name --revision main --local-dir ./models
 ```
 
 ### Python API
@@ -98,12 +100,93 @@ ms_model_path = modelscope_snapshot_download(
 )
 ```
 
+## Cache Management
+
+modely-ai includes a unified cache system to avoid duplicate downloads. Files are organized by source (Hugging Face / ModelScope), repository type, repository ID, and revision.
+
+### Cache Directory Configuration
+
+The cache directory is resolved with the following priority:
+
+1. **CLI argument**: `--cache-dir` (for download commands) or `modely cache --cache-dir <DIR>`
+2. **Environment variable**: `MODELY_CACHE`
+3. **Config file**: `~/.modely/config.json` (set via `modely cache config --set <DIR>`)
+4. **Default**: `~/.cache/modely`
+
+```bash
+# Set cache directory via environment variable
+export MODELY_CACHE=/path/to/cache
+
+# Or set via config file (persistent)
+modely-ai cache config --set /path/to/cache
+
+# Or specify per-command
+modely-ai --cache-dir /path/to/cache hf gpt2
+```
+
+### Cache Structure
+
+```
+~/.cache/modely/
+├── hf/                    # Hugging Face cache
+│   ├── models/            # repo_type = model
+│   │   └── gpt2/
+│   │       └── main/     # revision
+│   │           ├── config.json
+│   │           └── pytorch_model.bin
+│   └── datasets/         # repo_type = dataset
+└── ms/                    # ModelScope cache
+    ├── models/
+    │   └── owner--model-name/
+    │       └── master/
+    └── datasets/
+```
+
+### Cache Hit
+
+When downloading the same file again, modely-ai detects the cached file and skips the download:
+
+```bash
+# First download
+modely-ai hf gpt2 --file config.json
+# Output: Downloading config.json from gpt2...
+
+# Second download (cached)
+modely-ai hf gpt2 --file config.json
+# Output: File already cached at: ~/.cache/modely/hf/models/gpt2/main/config.json
+```
+
+### Cache Commands
+
+```bash
+# Show cache directory and total size
+modely-ai cache info
+
+# List all cached repositories
+modely-ai cache list
+
+# List with detailed file information
+modely-ai cache list --detail
+
+# Clean all cache
+modely-ai cache clean
+
+# Clean specific repository cache
+modely-ai cache clean gpt2
+
+# Show current cache directory configuration
+modely-ai cache config
+
+# Set new cache directory
+modely-ai cache config --set /tmp/my-cache
+```
+
 ## Command Reference
 
 ### Hugging Face Commands
 
 ```bash
-modely hf <repo_id> [OPTIONS]
+modely-ai hf <repo_id> [OPTIONS]
 ```
 
 Options:
@@ -118,7 +201,7 @@ Options:
 ### ModelScope Commands
 
 ```bash
-modely ms <repo_id> [OPTIONS]
+modely-ai ms <repo_id> [OPTIONS]
 ```
 
 Options:
