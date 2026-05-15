@@ -1,19 +1,16 @@
 #!/usr/bin/env python
 """
-A standalone module to download models from Hugging Face without CLI dependencies.
-
-This module allows downloading models from Hugging Face model hub with minimal
-dependencies. It can download a specific file or an entire model repository.
+A module to download models from Hugging Face using the official huggingface_hub SDK.
 """
 
 import argparse
-import hashlib
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Union
-import requests
-from tqdm.auto import tqdm
+from typing import Optional, Union, List
+
+from huggingface_hub import hf_hub_download, snapshot_download as hf_snapshot_download_sdk
+from huggingface_hub.utils import RepositoryNotFoundError, RevisionNotFoundError
 
 from modely.common import cache as hf_cache
 
@@ -31,7 +28,7 @@ def hf_file_download(
     resume_download: bool = False,
 ) -> str:
     """
-    Download a file from a Hugging Face repository.
+    Download a file from a Hugging Face repository using huggingface_hub SDK.
 
     Args:
         repo_id: Repository ID in the format "namespace/model_name"
@@ -47,57 +44,33 @@ def hf_file_download(
     Returns:
         Path to the downloaded file
     """
-    # Build the download URL
-    base_url = "https://huggingface.co"
-    download_url = f"{base_url}/{repo_id}/resolve/{revision}/{filename}"
-
-    # Prepare headers
-    headers = {"User-Agent": "modely/hf-download"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    # Determine local file path
-    if local_dir:
-        local_file_path = os.path.join(local_dir, filename)
+    # Determine cache directory
+    if cache_dir is None:
+        cache_dir = hf_cache.get_cache_dir()
     else:
-        # Use unified cache system
-        local_file_path = hf_cache.get_file_path(
-            repo_id, filename, revision, repo_type, "hf", cache_dir
+        cache_dir = hf_cache.get_cache_dir(cache_dir)
+
+    # Convert repo_type to huggingface_hub format
+    repo_type_map = {"model": "model", "dataset": "dataset", "space": "space"}
+    hf_repo_type = repo_type_map.get(repo_type, repo_type)
+
+    try:
+        file_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type=hf_repo_type,
+            revision=revision,
+            cache_dir=cache_dir,
+            local_dir=local_dir,
+            token=token,
+            force_download=force_download,
+            resume_download=resume_download,
         )
-
-    # Create parent directories if they don't exist
-    os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-
-    # Check if file already exists in cache and force_download is False
-    if not force_download and hf_cache.is_cached(
-        repo_id, filename, revision, repo_type, "hf", cache_dir
-    ):
-        print(f"File already cached at: {local_file_path}")
-        return local_file_path
-
-    # Download the file with progress bar
-    print(f"Downloading {filename} from {repo_id}...")
-    response = requests.get(download_url, headers=headers, stream=True)
-    response.raise_for_status()
-
-    # Get the total file size
-    total_size = int(response.headers.get("content-length", 0))
-
-    # Write the content to the local file
-    with open(local_file_path, "wb") as file, tqdm(
-        desc=filename,
-        total=total_size,
-        unit="B",
-        unit_scale=True,
-        unit_divisor=1024,
-    ) as progress_bar:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:  # Filter out keep-alive chunks
-                file.write(chunk)
-                progress_bar.update(len(chunk))
-
-    print(f"Successfully downloaded {filename} to: {local_file_path}")
-    return local_file_path
+        return file_path
+    except (RepositoryNotFoundError, RevisionNotFoundError) as e:
+        raise Exception(f"Repository or revision not found: {e}")
+    except Exception as e:
+        raise Exception(f"Failed to download {filename}: {e}")
 
 
 def snapshot_download(
@@ -108,12 +81,12 @@ def snapshot_download(
     cache_dir: Optional[Union[str, Path]] = None,
     local_dir: Optional[str] = None,
     token: Optional[str] = None,
-    allow_patterns: Optional[list] = None,
-    ignore_patterns: Optional[list] = None,
+    allow_patterns: Optional[List] = None,
+    ignore_patterns: Optional[List] = None,
     force_download: bool = False,
 ) -> str:
     """
-    Download all files from a Hugging Face repository.
+    Download all files from a Hugging Face repository using huggingface_hub SDK.
 
     Args:
         repo_id: Repository ID in the format "namespace/model_name"
@@ -138,67 +111,39 @@ def snapshot_download(
             print(f"Repository already cached at: {cached_path}")
             return cached_path
 
-    # Determine target directory
-    if local_dir:
-        target_dir = local_dir
+    # Determine cache directory
+    if cache_dir is None:
+        cache_dir = hf_cache.get_cache_dir()
     else:
-        target_dir = hf_cache.get_repo_cache_dir(
-            repo_id, repo_type, revision, "hf", cache_dir
+        cache_dir = hf_cache.get_cache_dir(cache_dir)
+
+    # Convert repo_type to huggingface_hub format
+    repo_type_map = {"model": "model", "dataset": "dataset", "space": "space"}
+    hf_repo_type = repo_type_map.get(repo_type, repo_type)
+
+    try:
+        repo_path = hf_snapshot_download_sdk(
+            repo_id=repo_id,
+            repo_type=hf_repo_type,
+            revision=revision,
+            cache_dir=cache_dir,
+            local_dir=local_dir,
+            token=token,
+            allow_patterns=allow_patterns,
+            ignore_patterns=ignore_patterns,
+            force_download=force_download,
         )
-
-    # Get the list of files via Hugging Face API
-    api_url = f"https://huggingface.co/api/{repo_type}s/{repo_id}/tree/{revision}"
-    headers = {"User-Agent": "modely/hf-download"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    response = requests.get(api_url, headers=headers)
-    response.raise_for_status()
-    files = response.json()
-
-    # Download each file
-    for file_info in files:
-        if file_info.get("type") == "file":
-            filename = file_info["path"]
-
-            # Apply filtering based on patterns if provided
-            if allow_patterns:
-                if not any(fnmatch(filename, pattern) for pattern in allow_patterns):
-                    continue
-
-            if ignore_patterns:
-                if any(fnmatch(filename, pattern) for pattern in ignore_patterns):
-                    continue
-
-            try:
-                hf_file_download(
-                    repo_id=repo_id,
-                    filename=filename,
-                    repo_type=repo_type,
-                    revision=revision,
-                    local_dir=target_dir,
-                    token=token,
-                    force_download=force_download,
-                )
-            except Exception as e:
-                print(f"Failed to download {filename}: {e}")
-                continue
-
-    print(f"Repository {repo_id} downloaded to: {target_dir}")
-    return target_dir
-
-
-def fnmatch(name, pattern):
-    """Simple pattern matching for filenames."""
-    import re
-    regex = pattern.replace("*", ".*").replace("?", ".")
-    return re.match(regex, name)
+        return repo_path
+    except (RepositoryNotFoundError, RevisionNotFoundError) as e:
+        raise Exception(f"Repository or revision not found: {e}")
+    except Exception as e:
+        raise Exception(f"Failed to download repository: {e}")
 
 
 def main():
     """Main function to handle command-line arguments for Hugging Face downloads."""
     parser = argparse.ArgumentParser(
-        description="Download models from Hugging Face without CLI dependencies"
+        description="Download models from Hugging Face using huggingface_hub SDK"
     )
     parser.add_argument("repo_id", type=str, help="Repository ID in format namespace/model_name")
     parser.add_argument("--file", type=str, help="Specific file path to download from the repository")
