@@ -1,10 +1,10 @@
 # modely-ai
 
-**modely-ai** is a Python package that provides a unified interface for downloading AI models and datasets from multiple platforms including Hugging Face and ModelScope. It offers a simple command-line tool and Python API to efficiently download models and datasets with progress tracking, resumable downloads, and minimal dependencies.
+**modely-ai** is a Python package that provides a unified interface for downloading AI models and datasets from multiple platforms including Hugging Face, ModelScope, and GitHub. It offers a simple command-line tool and Python API to efficiently download models and datasets with progress tracking, resumable downloads, and minimal dependencies.
 
 ## Features
 
-- 🚀 **Unified interface**: Download from both Hugging Face and ModelScope with a single tool
+- 🚀 **Unified interface**: Download from Hugging Face, ModelScope, and GitHub with a single tool
 - ⚡ **Progress tracking**: Real-time download progress with tqdm
 - 🔄 **Resumable downloads**: Resume interrupted downloads automatically
 - 📁 **Flexible options**: Download entire repositories or specific files
@@ -26,7 +26,7 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with two main subcommands: `hf` for Hugging Face and `ms` for ModelScope.
+modely-ai provides a command-line interface with three main subcommands: `hf` for Hugging Face, `ms` for ModelScope, and `github` for GitHub.
 
 #### Download from Hugging Face
 
@@ -72,12 +72,39 @@ Download with specific options:
 modely-ai ms owner/model-name --revision main --local-dir ./models
 ```
 
+#### Download from GitHub
+
+Download an entire repository:
+```bash
+modely-ai github owner/repo
+```
+
+Download a specific file:
+```bash
+modely-ai github owner/repo --file README.md
+```
+
+Download with specific options:
+```bash
+modely-ai github owner/repo --revision dev --local-dir ./repos
+```
+
+Download with Git LFS support (for large files):
+```bash
+modely-ai github owner/repo --with-lfs
+```
+
+Download from a private repository:
+```bash
+modely-ai github owner/private-repo --token YOUR_GITHUB_TOKEN
+```
+
 ### Python API
 
 You can also use modely-ai directly in your Python code:
 
 ```python
-from modely import hf_snapshot_download, model_file_download
+from modely import hf_snapshot_download, model_file_download, github_snapshot_download, github_file_download
 
 # Download an entire Hugging Face repository
 model_path = hf_snapshot_download(
@@ -98,6 +125,19 @@ ms_model_path = modelscope_snapshot_download(
     repo_id="owner/model-name",
     repo_type="model",
     revision="master"
+)
+
+# Download an entire GitHub repository
+repo_path = github_snapshot_download(
+    repo_id="owner/repo",
+    revision="main"
+)
+
+# Download a specific file from GitHub
+file_path = github_file_download(
+    repo_id="owner/repo",
+    filename="README.md",
+    revision="main"
 )
 ```
 
@@ -136,11 +176,16 @@ modely-ai --cache-dir /path/to/cache hf gpt2
 │   │           ├── config.json
 │   │           └── pytorch_model.bin
 │   └── datasets/         # repo_type = dataset
-└── ms/                    # ModelScope cache
-    ├── models/
-    │   └── owner--model-name/
-    │       └── master/
-    └── datasets/
+├── ms/                    # ModelScope cache
+│   ├── models/
+│   │   └── owner--model-name/
+│   │       └── master/
+│   └── datasets/
+└── github/                # GitHub cache
+    └── owner--repo/
+        └── main/
+            ├── README.md
+            └── (repository files)
 ```
 
 ### Cache Hit
@@ -212,6 +257,21 @@ Options:
 - `--cache-dir DIR`: Cache directory for downloaded files
 - `--local-dir DIR`: Local directory to download files to
 - `--token TOKEN`: Access token for private models
+
+### GitHub Commands
+
+```bash
+modely-ai github <repo_id> [OPTIONS]
+```
+
+Options:
+- `--file FILE`: Specific file to download from the repository
+- `--revision REVISION`: Branch, tag, or commit SHA (default: main)
+- `--cache-dir DIR`: Cache directory for downloaded files
+- `--local-dir DIR`: Local directory to download files to
+- `--token TOKEN`: GitHub personal access token for private repositories
+- `--with-lfs`: Enable Git LFS support for large files
+- `--force-download`: Force re-download even if file exists
 
 ## Requirements
 

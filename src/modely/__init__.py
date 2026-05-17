@@ -12,6 +12,11 @@ from .hf import (
     snapshot_download as hf_snapshot_download,
     main as hf_main
 )
+from .github import (
+    github_file_download,
+    snapshot_download as github_snapshot_download,
+    main as github_main
+)
 from .common import cache
 
 
@@ -59,6 +64,17 @@ def main():
     hf_parser.add_argument('--local-dir', type=str, default=None, help='Local directory to download files to')
     hf_parser.add_argument('--token', type=str, default=None, help='Access token for private repositories')
     hf_parser.add_argument('--force-download', action='store_true', help='Force re-download even if file exists')
+
+    # GitHub subcommand
+    github_parser = subparsers.add_parser("github", help="Download from GitHub")
+    github_parser.add_argument('repo_id', type=str, help='Repository ID in format owner/repo')
+    github_parser.add_argument('--file', type=str, help='Specific file to download')
+    github_parser.add_argument('--revision', type=str, default='main', help='Branch, tag, or commit SHA (default: main)')
+    github_parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
+    github_parser.add_argument('--local-dir', type=str, default=None, help='Local directory to download files to')
+    github_parser.add_argument('--token', type=str, default=None, help='GitHub personal access token for private repositories')
+    github_parser.add_argument('--with-lfs', action='store_true', help='Enable Git LFS support for large files')
+    github_parser.add_argument('--force-download', action='store_true', help='Force re-download even if file exists')
 
     args = parser.parse_args()
 
@@ -128,6 +144,36 @@ def main():
                 )
                 if result is not None:
                     print(f"Repository download completed. Files are in: {result}")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "github":
+        try:
+            if args.file:
+                # Download a specific file
+                result = github_file_download(
+                    repo_id=args.repo_id,
+                    filename=args.file,
+                    revision=args.revision,
+                    cache_dir=args.cache_dir,
+                    local_dir=args.local_dir,
+                    token=args.token,
+                    force_download=args.force_download
+                )
+                print(f"Successfully downloaded file to: {result}")
+            else:
+                # Clone entire repository
+                result = github_snapshot_download(
+                    repo_id=args.repo_id,
+                    revision=args.revision,
+                    cache_dir=args.cache_dir,
+                    local_dir=args.local_dir,
+                    token=args.token,
+                    with_lfs=args.with_lfs,
+                    force_download=args.force_download
+                )
+                if result is not None:
+                    print(f"Repository cloned to: {result}")
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -208,6 +254,8 @@ __all__ = [
     "modelscope_snapshot_download",
     "hf_file_download",
     "hf_snapshot_download",
+    "github_file_download",
+    "github_snapshot_download",
     "HubApi",
     "cache",
     "cache_main"
