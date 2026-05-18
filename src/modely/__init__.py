@@ -172,8 +172,7 @@ def main():
                     with_lfs=args.with_lfs,
                     force_download=args.force_download
                 )
-                if result is not None:
-                    print(f"Repository cloned to: {result}")
+                # github_clone() prints its own messages
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)

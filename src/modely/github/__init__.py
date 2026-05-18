@@ -45,11 +45,11 @@ def github_file_download(
     # Check cache first
     if not force_download:
         cached = github_cache.is_cached(
-            repo_id, filename, revision, "model", "github", cache_dir
+            repo_id, filename, revision, "tool", "github", cache_dir
         )
         if cached:
             file_path = github_cache.get_file_path(
-                repo_id, filename, revision, "model", "github", cache_dir
+                repo_id, filename, revision, "tool", "github", cache_dir
             )
             print(f"File already cached at: {file_path}")
             return file_path
@@ -60,7 +60,7 @@ def github_file_download(
         os.makedirs(local_dir, exist_ok=True)
     else:
         file_path = github_cache.get_file_path(
-            repo_id, filename, revision, "model", "github", cache_dir
+            repo_id, filename, revision, "tool", "github", cache_dir
         )
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
@@ -101,6 +101,20 @@ def github_file_download(
         raise Exception(f"Failed to download {filename}: {e}")
 
 
+def get_default_branch(repo_id: str, token: Optional[str] = None) -> Optional[str]:
+    """Get the default branch of a GitHub repository via API."""
+    url = f"https://api.github.com/repos/{repo_id}"
+    headers = {}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("default_branch", "main")
+    except Exception:
+        return None
+
+
 def github_clone(
     repo_id: str,
     *,
@@ -126,10 +140,18 @@ def github_clone(
     Returns:
         Path to the cloned repository
     """
+    # Resolve actual revision (use default branch if needed)
+    actual_revision = revision
+    if not force_download and revision == "main":
+        # Try to get default branch for better cache hit
+        default_branch = get_default_branch(repo_id, token)
+        if default_branch and default_branch != "main":
+            actual_revision = default_branch
+
     # Check cache first
     if not force_download:
         cached_path = github_cache.get_cached_repo_path(
-            repo_id, "model", revision, "github", cache_dir
+            repo_id, "model", actual_revision, "github", cache_dir
         )
         if cached_path and os.path.exists(os.path.join(cached_path, ".git")):
             print(f"Repository already cached at: {cached_path}")
@@ -140,7 +162,7 @@ def github_clone(
         target_dir = local_dir
     else:
         target_dir = github_cache.get_repo_cache_dir(
-            repo_id, "model", revision, "github", cache_dir
+            repo_id, "model", actual_revision, "github", cache_dir
         )
 
     # Build git URL with optional token authentication
@@ -154,7 +176,7 @@ def github_clone(
         shutil.rmtree(target_dir)
 
     # Clone the repository
-    os.makedirs(target_dir, exist_ok=True)
+    # Do NOT pre-create target_dir; let git create it
     parent_dir = os.path.dirname(target_dir)
     repo_name = os.path.basename(target_dir)
 
@@ -169,25 +191,105 @@ def github_clone(
         repo_name,
     ]
 
-    try:
-        print(f"Cloning {repo_id} (revision: {revision})...")
-        result = subprocess.run(
-            cmd,
-            cwd=parent_dir,
-            capture_output=True,
+    def _cleanup_on_failure(target):
+        """Clean up target directory if clone failed."""
+        if os.path.exists(target) and os.path.isdir(target):
+            try:
+                shutil.rmtree(target)
+            except Exception:
+                pass
+
+    def _run_git_clone(clone_cmd, cwd):
+        """Run git clone with --progress and stream key progress lines."""
+        clone_cmd = list(clone_cmd)
+        if "--progress" not in clone_cmd:
+            clone_cmd.append("--progress")
+        proc = subprocess.Popen(
+            clone_cmd,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
         )
+        stderr_lines = []
+        while True:
+            line = proc.stderr.readline()
+            if not line and proc.poll() is not None:
+                break
+            if line:
+                line = line.rstrip()
+                stderr_lines.append(line)
+                # Show only key progress lines: done, phase headers, errors, and 10/20/50/80/100% milestones
+                if _is_key_progress_line(line):
+                    print(line)
+        proc.wait()
+        return subprocess.CompletedProcess(
+            args=clone_cmd, returncode=proc.returncode,
+            stdout="", stderr="\n".join(stderr_lines),
+        )
+
+    def _is_key_progress_line(line):
+        """Check if a git progress line is worth showing to the user."""
+        # Always show: done lines, phase start lines, errors/warnings, non-percentage lines
+        if not line:
+            return False
+        if 'done' in line:
+            return True
+        if line.startswith('Cloning into') or line.startswith('fatal:') or line.startswith('warning:'):
+            return True
+        # For percentage lines, show only milestones: 10%, 20%, 50%, 80%, 100%
+        import re
+        m = re.search(r'(\d+)%', line)
+        if m:
+            pct = int(m.group(1))
+            return pct in (10, 20, 50, 80, 100)
+        return False
+
+    try:
+        print(f"Cloning {repo_id} (revision: {revision})...")
+        result = _run_git_clone(cmd, parent_dir)
         if result.returncode != 0:
-            # Try without depth if branch/tag doesn't support shallow clone
+            _cleanup_on_failure(target_dir)
+            # Try without depth if shallow clone is not supported
             if "--depth" in cmd:
                 cmd.remove("--depth")
                 cmd.remove("1")
-                result = subprocess.run(
-                    cmd,
-                    cwd=parent_dir,
-                    capture_output=True,
-                    text=True,
-                )
+                result = _run_git_clone(cmd, parent_dir)
+                if result.returncode != 0:
+                    _cleanup_on_failure(target_dir)
+            # If still fails, try to get default branch and retry
+            if result.returncode != 0:
+                default_branch = get_default_branch(repo_id, token)
+                if default_branch and default_branch != revision:
+                    print(f"Branch '{revision}' not found, trying default branch '{default_branch}'...")
+                    # Rebuild target_dir with correct branch
+                    if not local_dir:
+                        target_dir = github_cache.get_repo_cache_dir(
+                            repo_id, "model", default_branch, "github", cache_dir
+                        )
+                        repo_name = os.path.basename(target_dir)
+                        parent_dir = os.path.dirname(target_dir)
+                    # Retry clone with default branch
+                    retry_cmd = [
+                        "git", "clone", "--depth", "1",
+                        "--branch", default_branch,
+                        git_url, repo_name,
+                    ]
+                    result = _run_git_clone(retry_cmd, parent_dir)
+                    if result.returncode != 0 and "--depth" in retry_cmd:
+                        retry_cmd.remove("--depth")
+                        retry_cmd.remove("1")
+                        result = _run_git_clone(retry_cmd, parent_dir)
+                    if result.returncode != 0:
+                        _cleanup_on_failure(target_dir)
+                    revision = default_branch  # Update revision for LFS and return
+                else:
+                    # Last resort: clone without branch (uses remote HEAD)
+                    simple_cmd = ["git", "clone", git_url, repo_name]
+                    result = _run_git_clone(simple_cmd, parent_dir)
+                    if result.returncode != 0:
+                        _cleanup_on_failure(target_dir)
+
             if result.returncode != 0:
                 raise Exception(f"Git clone failed: {result.stderr}")
 
@@ -202,6 +304,7 @@ def github_clone(
             if lfs_result.returncode != 0:
                 print(f"Warning: Git LFS pull failed: {lfs_result.stderr}")
 
+        print(f"Repository cloned to: {target_dir}")
         return target_dir
     except FileNotFoundError:
         raise Exception(

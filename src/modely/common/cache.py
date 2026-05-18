@@ -19,8 +19,10 @@ DEFAULT_CACHE_DIR = os.path.join(str(Path.home()), ".cache", "modely")
 # Cache structure constants
 SOURCE_HF = "hf"
 SOURCE_MS = "ms"
+SOURCE_GITHUB = "github"
 REPO_TYPE_MODEL = "models"
 REPO_TYPE_DATASET = "datasets"
+REPO_TYPE_TOOL = "tools"
 
 
 def _load_config() -> Dict:
@@ -76,11 +78,20 @@ def get_source_cache_dir(source: str, cache_dir: Optional[str] = None) -> str:
     return path
 
 
+def _repo_type_to_dir(repo_type: str) -> str:
+    """Convert repo_type string to directory name."""
+    mapping = {
+        "model": REPO_TYPE_MODEL,
+        "dataset": REPO_TYPE_DATASET,
+        "tool": REPO_TYPE_TOOL,
+    }
+    return mapping.get(repo_type, repo_type)
+
+
 def get_repo_type_dir(source: str, repo_type: str, cache_dir: Optional[str] = None) -> str:
     """Get cache directory for a specific source and repo type."""
     source_dir = get_source_cache_dir(source, cache_dir)
-    # repo_type: model->models, dataset->datasets
-    type_dir = REPO_TYPE_MODEL if repo_type == "model" else REPO_TYPE_DATASET
+    type_dir = _repo_type_to_dir(repo_type)
     path = os.path.join(source_dir, type_dir)
     os.makedirs(path, exist_ok=True)
     return path
@@ -171,7 +182,7 @@ def list_cache(cache_dir: Optional[str] = None, detail: bool = False) -> List[Di
     cache_dir = get_cache_dir(cache_dir)
     results = []
 
-    for source in [SOURCE_HF, SOURCE_MS]:
+    for source in [SOURCE_HF, SOURCE_MS, SOURCE_GITHUB]:
         source_dir = os.path.join(cache_dir, source)
         if not os.path.exists(source_dir):
             continue
@@ -244,8 +255,8 @@ def clean_cache(repo_id: Optional[str] = None, repo_type: Optional[str] = None,
 
     if repo_id:
         # Clean specific repo
-        for src in ([source] if source else [SOURCE_HF, SOURCE_MS]):
-            for rtype in ([repo_type] if repo_type else ["model", "dataset"]):
+        for src in ([source] if source else [SOURCE_HF, SOURCE_MS, SOURCE_GITHUB]):
+            for rtype in ([repo_type] if repo_type else ["model", "dataset", "tool"]):
                 for rev in ([revision] if revision else ["*"]):
                     if rev == "*":
                         # Get all revisions for this repo

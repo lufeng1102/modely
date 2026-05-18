@@ -28,12 +28,20 @@ modely-ai cache <cmd>         # Cache management
 ```
 
 ### Testing
-Test by running actual CLI commands:
 ```bash
-modely-ai hf gpt2 --file config.json
-modely-ai ms owner/model --file config.json
-modely-ai github torvalds/linux --file README --revision master
+pip install -e ".[dev]"        # Install with test dependencies
+
+# Unit tests (no network)
+pytest tests/ -m "not integration"
+
+# Integration tests (require network)
+pytest tests/ -m integration
+
+# All tests
+pytest tests/
 ```
+
+**IMPORTANT**: After any code change, run `pytest tests/ -m "not integration"` to verify unit tests pass.
 
 ## Architecture
 
@@ -60,7 +68,7 @@ src/modely/
 - Cache directory priority: CLI arg > `MODELY_CACHE` env > config file > `~/.cache/modely`
 - Cache structure: `{cache_dir}/{source}/{type}/{repo_id}/{revision}/`
 - Source codes: `hf`, `ms`, `github`
-- Type codes: `models` (for model), `datasets` (for dataset)
+- Type codes: `models` (for model), `datasets` (for dataset), `tools` (for GitHub tools)
 - Repo ID normalization: `/` replaced with `--` in directory names
 
 **CLI Pattern** (`__init__.py`):

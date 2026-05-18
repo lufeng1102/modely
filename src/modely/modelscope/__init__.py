@@ -825,30 +825,29 @@ def snapshot_download(
             return None
 
     # Process each file and download
-    for repo_file in repo_files:
-        if repo_file.get('Type') == 'tree':
-            continue  # Skip directories
+    download_files = [f for f in repo_files if f.get('Type') != 'tree']
+    with tqdm(total=len(download_files), unit="file", desc="Downloading snapshot") as pbar:
+        for repo_file in download_files:
+            file_path = repo_file['Path']
+            pbar.set_postfix_str(file_path)
 
-        file_path = repo_file['Path']
-        print(f"Downloading: {file_path}")
-
-        try:
-            # Download this specific file
-            _repo_file_download(
-                repo_id=repo_id,
-                file_path=file_path,
-                repo_type=repo_type,
-                revision=revision,
-                cache_dir=cache_dir,
-                local_files_only=local_files_only,
-                cookies=cookies,
-                local_dir=local_dir,
-                disable_tqdm=False,
-                token=token
-            )
-        except Exception as e:
-            print(f"Failed to download {file_path}: {e}")
-            continue  # Continue with other files
+            try:
+                # Download this specific file
+                _repo_file_download(
+                    repo_id=repo_id,
+                    file_path=file_path,
+                    repo_type=repo_type,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    local_files_only=local_files_only,
+                    cookies=cookies,
+                    local_dir=local_dir,
+                    disable_tqdm=False,
+                    token=token
+                )
+            except Exception as e:
+                print(f"Failed to download {file_path}: {e}")
+            pbar.update(1)
 
     print("Snapshot download completed!")
 

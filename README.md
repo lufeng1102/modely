@@ -182,10 +182,11 @@ modely-ai --cache-dir /path/to/cache hf gpt2
 │   │       └── master/
 │   └── datasets/
 └── github/                # GitHub cache
-    └── owner--repo/
-        └── main/
-            ├── README.md
-            └── (repository files)
+    └── tools/             # repo_type = tool
+        └── owner--repo/
+            └── main/
+                ├── README.md
+                └── (repository files)
 ```
 
 ### Cache Hit
@@ -279,6 +280,31 @@ Options:
 - requests >= 2.25.0
 - tqdm >= 4.62.0
 - huggingface-hub >= 0.20.0
+
+## Development
+
+### Setup
+
+```bash
+pip install -e ".[dev]"
+```
+
+### Running Tests
+
+Unit tests (no network required):
+```bash
+pytest tests/ -m "not integration"
+```
+
+Integration tests (require network access):
+```bash
+pytest tests/ -m integration
+```
+
+All tests:
+```bash
+pytest tests/
+```
 
 ## License
 
