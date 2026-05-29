@@ -99,6 +99,62 @@ Download from a private repository:
 modely-ai github owner/private-repo --token YOUR_GITHUB_TOKEN
 ```
 
+#### Watch Hugging Face and ModelScope for Updates
+
+Create a watch configuration:
+```bash
+modely-ai watch init
+```
+
+The generated config starts with an empty `targets` list. Edit `~/.modely/watch.json` to list the repositories to monitor:
+```json
+{
+  "state_file": "~/.modely/watch_state.json",
+  "targets": [
+    {
+      "source": "hf",
+      "repo_type": "model",
+      "repo_id": "bert-base-uncased",
+      "revision": "main",
+      "download": "snapshot",
+      "ignore_patterns": ["*.safetensors"]
+    },
+    {
+      "source": "ms",
+      "repo_type": "dataset",
+      "repo_id": "owner/dataset-name",
+      "revision": "master",
+      "download": "files",
+      "files": ["README.md", "data/train.jsonl"]
+    }
+  ]
+}
+```
+
+Run one check manually:
+```bash
+modely-ai watch run
+```
+
+Install a recurring check with `crontab`:
+```bash
+# Every day at 02:30
+modely-ai watch install --every day --time 02:30
+
+# Every Monday at 02:30
+modely-ai watch install --every week --weekday mon --time 02:30
+```
+
+Inspect or remove the installed job:
+```bash
+modely-ai watch status
+modely-ai watch uninstall
+```
+
+Watch state is stored in `~/.modely/watch_state.json` by default. Cron output is appended to `~/.modely/watch.log` for the default config, or to `watch.log` next to a custom config file. For private repositories, set `token_env` in the target and put the token in that environment variable instead of writing secrets into the config file. For large models or datasets, prefer `allow_patterns`, `ignore_patterns`, or `download: "files"` so the watcher does not mirror unnecessary large files.
+
+ModelScope dataset file listing may not be available for every repository through the lightweight API. When a ModelScope target uses `download: "files"` with explicit `files`, modely refreshes those files on each scheduled run if remote listing is unavailable. Snapshot downloads and pattern-based ModelScope filtering still require a remote file list.
+
 ### Python API
 
 You can also use modely-ai directly in your Python code:
@@ -273,6 +329,20 @@ Options:
 - `--token TOKEN`: GitHub personal access token for private repositories
 - `--with-lfs`: Enable Git LFS support for large files
 - `--force-download`: Force re-download even if file exists
+
+### Watch Commands
+
+```bash
+modely-ai watch <init|run|list|install|status|uninstall> [OPTIONS]
+```
+
+Options:
+- `init --config FILE --force`: Create a JSON watch config template
+- `run --config FILE`: Check configured targets once and download changed repositories
+- `list --config FILE`: Show configured targets and their last known state
+- `install --config FILE --every {day,week} --time HH:MM --weekday mon`: Install a crontab job
+- `status --config FILE`: Show the installed crontab job
+- `uninstall --config FILE`: Remove the installed crontab job
 
 ## Requirements
 

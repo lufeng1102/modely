@@ -17,6 +17,12 @@ from .github import (
     snapshot_download as github_snapshot_download,
     main as github_main
 )
+from .watch import (
+    configure_parser as configure_watch_parser,
+    main as watch_main,
+    run_watch,
+    list_targets as watch_list_targets,
+)
 from .common import cache
 
 
@@ -75,6 +81,10 @@ def main():
     github_parser.add_argument('--token', type=str, default=None, help='GitHub personal access token for private repositories')
     github_parser.add_argument('--with-lfs', action='store_true', help='Enable Git LFS support for large files')
     github_parser.add_argument('--force-download', action='store_true', help='Force re-download even if file exists')
+
+    # Watch subcommand
+    watch_parser = subparsers.add_parser("watch", help="Watch repositories and download updates")
+    configure_watch_parser(watch_parser)
 
     args = parser.parse_args()
 
@@ -178,6 +188,8 @@ def main():
             sys.exit(1)
     elif args.command == "cache":
         cache_main(args)
+    elif args.command == "watch":
+        watch_main(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -257,5 +269,8 @@ __all__ = [
     "github_snapshot_download",
     "HubApi",
     "cache",
-    "cache_main"
+    "cache_main",
+    "watch_main",
+    "run_watch",
+    "watch_list_targets",
 ]
