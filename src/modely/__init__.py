@@ -23,6 +23,7 @@ from .watch import (
     run_watch,
     list_targets as watch_list_targets,
 )
+from .search import SearchResult, main as search_main
 from .common import cache
 
 
@@ -85,6 +86,63 @@ def main():
     # Watch subcommand
     watch_parser = subparsers.add_parser("watch", help="Watch repositories and download updates")
     configure_watch_parser(watch_parser)
+
+    # Search subcommand
+    search_parser = subparsers.add_parser("search", help="Search for models and datasets")
+    search_parser.add_argument("keyword", type=str, help="Search keyword for model/dataset name")
+    search_parser.add_argument(
+        "--source", "-s", choices=["hf", "ms", "all"], default="all",
+        help="Platform to search (default: all)",
+    )
+    search_parser.add_argument(
+        "--repo-type", "-t", choices=["model", "dataset"], default="model",
+        help="Type of repository (default: model)",
+    )
+    search_parser.add_argument(
+        "--task", type=str, default=None,
+        help="Filter by task type (e.g., text-classification)",
+    )
+    search_parser.add_argument(
+        "--library", type=str, default=None,
+        help="Filter by library (HF only, e.g., transformers, pytorch)",
+    )
+    search_parser.add_argument(
+        "--license", type=str, default=None,
+        help="Filter by license (HF only)",
+    )
+    search_parser.add_argument(
+        "--sort", type=str, default="downloads",
+        choices=["downloads", "lastModified", "likes", "created_at"],
+        help="Sort field (default: downloads)",
+    )
+    search_parser.add_argument(
+        "--direction", choices=["asc", "desc"], default="desc",
+        help="Sort direction (default: desc)",
+    )
+    search_parser.add_argument(
+        "--limit", "-n", type=int, default=20,
+        help="Max results per source (default: 20)",
+    )
+    search_parser.add_argument(
+        "--author", type=str, default=None,
+        help="Filter by author/owner",
+    )
+    search_parser.add_argument(
+        "--after", type=str, default=None,
+        help="Only repos modified after this date (YYYY-MM-DD)",
+    )
+    search_parser.add_argument(
+        "--before", type=str, default=None,
+        help="Only repos modified before this date (YYYY-MM-DD)",
+    )
+    search_parser.add_argument(
+        "--full", action="store_true",
+        help="Return full model/dataset info (HF only)",
+    )
+    search_parser.add_argument(
+        "--json", action="store_true",
+        help="Output results as JSON",
+    )
 
     args = parser.parse_args()
 
@@ -190,6 +248,8 @@ def main():
         cache_main(args)
     elif args.command == "watch":
         watch_main(args)
+    elif args.command == "search":
+        search_main(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -273,4 +333,7 @@ __all__ = [
     "watch_main",
     "run_watch",
     "watch_list_targets",
+    "search",
+    "SearchResult",
+    "search_main",
 ]

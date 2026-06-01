@@ -5,6 +5,7 @@
 ## Features
 
 - 🚀 **Unified interface**: Download from Hugging Face, ModelScope, and GitHub with a single tool
+- 🔍 **Model discovery**: Search models and datasets by name, task type, date, and more
 - ⚡ **Progress tracking**: Real-time download progress with tqdm
 - 🔄 **Resumable downloads**: Resume interrupted downloads automatically
 - 📁 **Flexible options**: Download entire repositories or specific files
@@ -26,7 +27,7 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with three main subcommands: `hf` for Hugging Face, `ms` for ModelScope, and `github` for GitHub.
+modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`), searching (`search`), monitoring (`watch`), and cache management (`cache`).
 
 #### Download from Hugging Face
 
@@ -99,6 +100,38 @@ Download from a private repository:
 modely-ai github owner/private-repo --token YOUR_GITHUB_TOKEN
 ```
 
+#### Search Models and Datasets
+
+Search for models and datasets across Hugging Face and ModelScope with a unified interface:
+
+```bash
+# Search Hugging Face for models matching "gpt2"
+modely-ai search gpt2 --source hf --limit 10
+
+# Search ModelScope for models matching "qwen"
+modely-ai search qwen --source ms --limit 10
+
+# Search Hugging Face datasets
+modely-ai search glue --source hf --repo-type dataset
+
+# Filter by task type
+modely-ai search bert --task text-classification
+
+# Filter by library and sort by likes
+modely-ai search llama --library transformers --sort likes
+
+# Filter by date range (last modified after 2024)
+modely-ai search gpt2 --after 2024-01-01
+
+# JSON output for scripting
+modely-ai search gpt2 --source hf --json | jq '.[].id'
+
+# Search both platforms simultaneously
+modely-ai search qwen --source all
+```
+
+Search results are displayed as a table showing source, model ID, task type, downloads, likes, dates, and the model's web page URL.
+
 #### Watch Hugging Face and ModelScope for Updates
 
 Create a watch configuration:
@@ -161,6 +194,12 @@ You can also use modely-ai directly in your Python code:
 
 ```python
 from modely import hf_snapshot_download, model_file_download, github_snapshot_download, github_file_download
+from modely.search import search
+
+# Search for models
+results = search("gpt2", source="hf", repo_type="model", task="text-generation", limit=5)
+for r in results:
+    print(f"{r.id}: {r.downloads} downloads, {r.url}")
 
 # Download an entire Hugging Face repository
 model_path = hf_snapshot_download(
@@ -343,6 +382,26 @@ Options:
 - `install --config FILE --every {day,week} --time HH:MM --weekday mon`: Install a crontab job
 - `status --config FILE`: Show the installed crontab job
 - `uninstall --config FILE`: Remove the installed crontab job
+
+### Search Commands
+
+```bash
+modely-ai search <keyword> [OPTIONS]
+```
+
+Options:
+- `--source, -s {hf,ms,all}`: Platform to search (default: all)
+- `--repo-type, -t {model,dataset}`: Type of repository (default: model)
+- `--task TASK`: Filter by task type (e.g., text-classification, text-generation)
+- `--library LIBRARY`: Filter by library, HF only (e.g., transformers, pytorch)
+- `--license LICENSE`: Filter by license, HF only
+- `--sort {downloads,lastModified,likes,created_at}`: Sort field (default: downloads)
+- `--direction {asc,desc}`: Sort direction (default: desc)
+- `--limit, -n N`: Max results per source (default: 20)
+- `--author AUTHOR`: Filter by author/owner
+- `--after DATE`: Only repos modified after this date (YYYY-MM-DD)
+- `--before DATE`: Only repos modified before this date (YYYY-MM-DD)
+- `--json`: Output results as JSON instead of a table
 
 ## Requirements
 
