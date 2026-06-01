@@ -199,6 +199,259 @@ class TestHuggingFaceSearch:
         assert "tag-a" in results[0].tags
         assert "tag-b" in results[0].tags
 
+    def test_task_filter_passed_to_api(self, monkeypatch):
+        """Verify the task parameter is passed as a filter to the HF API."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", task="text-classification")
+        assert "filter" in captured
+        assert "text-classification" in captured["filter"]
+
+    def test_library_filter_passed_to_api(self, monkeypatch):
+        """Verify the library parameter is passed as a filter."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", library="transformers")
+        assert "transformers" in captured["filter"]
+
+    def test_license_filter_passed_to_api(self, monkeypatch):
+        """Verify the license parameter is passed as 'license:<name>'."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", license="mit")
+        assert "license:mit" in captured["filter"]
+
+    def test_author_passed_to_api(self, monkeypatch):
+        """Verify the author parameter is passed directly."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", author="test-org")
+        assert captured["author"] == "test-org"
+
+    def test_full_flag_passed_to_api(self, monkeypatch):
+        """Verify the full=True parameter is passed to the API."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", full=True)
+        assert captured["full"] is True
+
+    def test_full_flag_false_by_default(self, monkeypatch):
+        """Verify full=False by default (not full=True)."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test")
+        assert captured.get("full") is False or captured.get("full") is None
+
+    def test_limit_passed_to_api(self, monkeypatch):
+        """Verify the limit parameter is passed to the API."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", limit=5)
+        assert captured["limit"] == 5
+
+    def test_search_keyword_passed_to_api(self, monkeypatch):
+        """Verify the keyword is passed as the search parameter."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("gpt2")
+        assert captured["search"] == "gpt2"
+
+    def test_sort_passed_to_api(self, monkeypatch):
+        """Verify sort fields are mapped correctly."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", sort="lastModified")
+        assert captured["sort"] == "last_modified"
+
+    def test_sort_downloads_mapped(self, monkeypatch):
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", sort="downloads")
+        assert captured["sort"] == "downloads"
+
+    def test_sort_likes_mapped(self, monkeypatch):
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", sort="likes")
+        assert captured["sort"] == "likes"
+
+    def test_sort_created_at_mapped(self, monkeypatch):
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", sort="created_at")
+        assert captured["sort"] == "created_at"
+
+    def test_asc_direction_reverses_results(self, monkeypatch):
+        """Ascending direction should reverse the API results."""
+        low = _mock_model_info(id="low", downloads=100)
+        high = _mock_model_info(id="high", downloads=10000)
+
+        def mock_list_models(self, **kwargs):
+            return [high, low]  # API returns desc by default
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = hf_mod.search_huggingface("test", direction="asc")
+        assert results[0].id == "low"
+        assert results[1].id == "high"
+
+    def test_dataset_with_task(self, monkeypatch):
+        """Task filter should work with datasets too."""
+        captured = {}
+
+        def mock_list_datasets(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_datasets", mock_list_datasets)
+        hf_mod.search_huggingface("test", repo_type="dataset", task="nlp")
+        assert "filter" in captured
+        assert "nlp" in captured["filter"]
+
+    def test_no_filters_when_all_none(self, monkeypatch):
+        """When no optional filters are set, the filter arg should be None."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test")
+        assert captured["filter"] is None
+
+    def test_multiple_filters_combined(self, monkeypatch):
+        """Task + library + license should all be in the filter list."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        hf_mod.search_huggingface("test", task="text-gen", library="pytorch", license="apache-2.0")
+        filters = captured["filter"]
+        assert "text-gen" in filters
+        assert "pytorch" in filters
+        assert "license:apache-2.0" in filters
+
+    def test_tags_none_handled(self, monkeypatch):
+        """When tags is None, it should not crash."""
+        fake_info = _mock_model_info(tags=None)
+
+        def mock_list_models(self, **kwargs):
+            return [fake_info]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        results = hf_mod.search_huggingface("test")
+        assert results[0].tags == []
+
+    def test_none_downloads_defaults_to_zero(self, monkeypatch):
+        """When downloads is None, it should default to 0."""
+        fake_info = _mock_model_info(downloads=None)
+
+        def mock_list_models(self, **kwargs):
+            return [fake_info]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        results = hf_mod.search_huggingface("test")
+        assert results[0].downloads == 0
+
+    def test_none_likes_defaults_to_zero(self, monkeypatch):
+        """When likes is None, it should default to 0."""
+        fake_info = _mock_model_info(likes=None)
+
+        def mock_list_models(self, **kwargs):
+            return [fake_info]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        results = hf_mod.search_huggingface("test")
+        assert results[0].likes == 0
+
+    def test_last_modified_without_isoformat(self, monkeypatch):
+        """String last_modified should be preserved directly."""
+        fake_info = _mock_model_info(last_modified="2024-06-01T00:00:00Z")
+
+        def mock_list_models(self, **kwargs):
+            return [fake_info]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        results = hf_mod.search_huggingface("test")
+        # SimpleNamespace stores the string directly, no isoformat method
+        # The code checks hasattr for isoformat; if absent, uses the value as-is
+        assert results[0].last_modified is not None
+
+    def test_hf_url_is_correct(self, monkeypatch):
+        """The URL field should point to huggingface.co."""
+        fake_info = _mock_model_info(id="org/model-name")
+
+        def mock_list_models(self, **kwargs):
+            return [fake_info]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        results = hf_mod.search_huggingface("test")
+        assert results[0].url == "https://huggingface.co/org/model-name"
+
 
 # ── MS Search (unit) ────────────────────────────────────────────
 
@@ -279,6 +532,469 @@ class TestModelScopeSearch:
         results = ms_mod.search_modelscope("test")
         assert results == []
 
+    def test_task_filter_in_request_body(self, monkeypatch):
+        """Task parameter should be included in the JSON body."""
+        captured = {}
+
+        def mock_put(url, json, timeout, headers):
+            captured["body"] = json
+            resp = ms_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
+            return resp
+
+        monkeypatch.setattr(ms_mod.requests, "put", mock_put)
+        ms_mod.search_modelscope("test", task="text-generation")
+        assert captured["body"]["tasks"] == ["text-generation"]
+
+    def test_no_task_means_empty_tasks_list(self, monkeypatch):
+        """When no task is given, the tasks field should be an empty list."""
+        captured = {}
+
+        def mock_put(url, json, timeout, headers):
+            captured["body"] = json
+            resp = ms_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
+            return resp
+
+        monkeypatch.setattr(ms_mod.requests, "put", mock_put)
+        ms_mod.search_modelscope("test")
+        assert captured["body"]["tasks"] == []
+
+    def test_sort_by_downloads_default(self, monkeypatch):
+        """Default sort should be by downloads descending."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "a", "Name": "low", "Downloads": 100, "Stars": 5, "Tasks": [], "Tags": []},
+                                {"Path": "a", "Name": "high", "Downloads": 10000, "Stars": 5, "Tasks": [], "Tags": []},
+                            ],
+                            "TotalCount": 2,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert results[0].id == "a/high"
+        assert results[1].id == "a/low"
+
+    def test_sort_by_likes(self, monkeypatch):
+        """Sort by likes should order by likes field."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "a", "Name": "low", "Downloads": 1000, "Stars": 100, "Likes": 1, "Tasks": [], "Tags": []},
+                                {"Path": "a", "Name": "high", "Downloads": 100, "Stars": 0, "Likes": 500, "Tasks": [], "Tags": []},
+                            ],
+                            "TotalCount": 2,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test", sort="likes")
+        assert results[0].id == "a/high"  # 500 likes
+        assert results[1].id == "a/low"   # 1 like
+
+    def test_sort_by_last_modified(self, monkeypatch):
+        """Sort by lastModified should order by LastUpdatedTime."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "a", "Name": "older", "Downloads": 100, "Stars": 5,
+                                 "CreatedTime": 1700000000, "LastUpdatedTime": 1700000000, "Tasks": [], "Tags": []},
+                                {"Path": "a", "Name": "newer", "Downloads": 100, "Stars": 5,
+                                 "CreatedTime": 1700000000, "LastUpdatedTime": 1720000000, "Tasks": [], "Tags": []},
+                            ],
+                            "TotalCount": 2,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test", sort="lastModified")
+        assert results[0].id == "a/newer"
+        assert results[1].id == "a/older"
+
+    def test_sort_by_created_at(self, monkeypatch):
+        """Sort by created_at should order by CreatedTime."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "a", "Name": "older", "Downloads": 100, "Stars": 5,
+                                 "CreatedTime": 1500000000, "LastUpdatedTime": 1700000000, "Tasks": [], "Tags": []},
+                                {"Path": "a", "Name": "newer", "Downloads": 100, "Stars": 5,
+                                 "CreatedTime": 1600000000, "LastUpdatedTime": 1700000000, "Tasks": [], "Tags": []},
+                            ],
+                            "TotalCount": 2,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test", sort="created_at")
+        assert results[0].id == "a/newer"
+        assert results[1].id == "a/older"
+
+    def test_sort_asc_direction(self, monkeypatch):
+        """Ascending direction should reverse sort order."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "a", "Name": "high", "Downloads": 10000, "Stars": 5, "Tasks": [], "Tags": []},
+                                {"Path": "a", "Name": "low", "Downloads": 100, "Stars": 5, "Tasks": [], "Tags": []},
+                            ],
+                            "TotalCount": 2,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test", direction="asc")
+        assert results[0].id == "a/low"
+        assert results[1].id == "a/high"
+
+    def test_limit_in_request_body(self, monkeypatch):
+        """Limit should be passed as PageSize in the JSON body."""
+        captured = {}
+
+        def mock_put(url, json, timeout, headers):
+            captured["body"] = json
+            resp = ms_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
+            return resp
+
+        monkeypatch.setattr(ms_mod.requests, "put", mock_put)
+        ms_mod.search_modelscope("test", limit=5)
+        assert captured["body"]["PageSize"] == 5
+
+    def test_pagenumber_in_request_body(self, monkeypatch):
+        """PageNumber should be 1 by default."""
+        captured = {}
+
+        def mock_put(url, json, timeout, headers):
+            captured["body"] = json
+            resp = ms_mod.requests.Response()
+            resp.status_code == 200
+            resp.json = lambda: {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
+            return resp
+
+        monkeypatch.setattr(ms_mod.requests, "put", mock_put)
+        ms_mod.search_modelscope("test")
+        assert captured["body"]["PageNumber"] == 1
+
+    def test_keyword_in_request_body(self, monkeypatch):
+        """Keyword should be in the Name field of the JSON body."""
+        captured = {}
+
+        def mock_put(url, json, timeout, headers):
+            captured["body"] = json
+            resp = ms_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
+            return resp
+
+        monkeypatch.setattr(ms_mod.requests, "put", mock_put)
+        ms_mod.search_modelscope("qwen")
+        assert captured["body"]["Name"] == "qwen"
+
+    def test_tags_is_list_of_dicts(self, monkeypatch):
+        """When Tags is a list of dicts, extract 'Name' or 'value'."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {
+                                    "Path": "a",
+                                    "Name": "b",
+                                    "Downloads": 100,
+                                    "Stars": 5,
+                                    "Tags": [{"Name": "nlp"}, {"Name": "chat"}],
+                                    "Tasks": [],
+                                }
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert "nlp" in results[0].tags
+        assert "chat" in results[0].tags
+
+    def test_tasks_is_list_of_strings(self, monkeypatch):
+        """When Tasks is a list of strings (not dicts), use first string."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {
+                                    "Path": "a",
+                                    "Name": "b",
+                                    "Downloads": 100,
+                                    "Stars": 5,
+                                    "Tasks": ["text-generation"],
+                                    "Tags": [],
+                                }
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert results[0].pipeline_tag == "text-generation"
+
+    def test_none_likes_falls_back_to_stars(self, monkeypatch):
+        """When Likes is None, fall back to Stars."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {
+                                    "Path": "a",
+                                    "Name": "b",
+                                    "Downloads": 100,
+                                    "Stars": 42,
+                                    "Likes": None,
+                                    "Tasks": [],
+                                    "Tags": [],
+                                }
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert results[0].likes == 42
+
+    def test_only_name_no_path(self, monkeypatch):
+        """When Path is missing, use Name as the ID."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {
+                                    "Name": "standalone-model",
+                                    "Downloads": 100,
+                                    "Stars": 5,
+                                    "Tasks": [],
+                                    "Tags": [],
+                                }
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert results[0].id == "standalone-model"
+
+    def test_http_error_handled(self, monkeypatch):
+        """HTTPError should be caught and return empty list."""
+        def mock_put(**kwargs):
+            resp = ms_mod.requests.Response()
+            resp.status_code = 500
+            resp.raise_for_status = lambda: (_ for _ in ()).throw(ms_mod.requests.exceptions.HTTPError("500"))
+            return resp
+
+        monkeypatch.setattr(ms_mod.requests, "put", mock_put)
+
+        results = ms_mod.search_modelscope("test")
+        assert results == []
+
+    def test_invalid_json_handled(self, monkeypatch):
+        """Invalid JSON response should be caught."""
+
+        class FakeResponse:
+            def json(self):
+                raise ms_mod.json.JSONDecodeError("bad json", "", 0)
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert results == []
+
+    def test_url_contains_modelscope_cn(self, monkeypatch):
+        """Generated URL should point to modelscope.cn."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "owner", "Name": "model", "Downloads": 100, "Stars": 5, "Tasks": [], "Tags": []}
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert "modelscope.cn/models/" in results[0].url
+
+    def test_organization_as_author(self, monkeypatch):
+        """Organization field should be used as author."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {
+                                    "Path": "org",
+                                    "Name": "model",
+                                    "Organization": "MyOrg",
+                                    "Downloads": 100,
+                                    "Stars": 5,
+                                    "Tasks": [],
+                                    "Tags": [],
+                                }
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert results[0].author == "MyOrg"
+
+    def test_description_falls_back_to_chinese_name(self, monkeypatch):
+        """When Description is missing, fall back to ChineseName."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {
+                                    "Path": "a",
+                                    "Name": "b",
+                                    "Downloads": 100,
+                                    "Stars": 5,
+                                    "ChineseName": "中文名称",
+                                    "Tasks": [],
+                                    "Tags": [],
+                                }
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert results[0].description == "中文名称"
+
+    def test_malformed_item_skipped(self, monkeypatch):
+        """A malformed item that throws during parsing should be skipped."""
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                None,  # would crash .get() on None
+                                {"Path": "a", "Name": "good", "Downloads": 100, "Stars": 5, "Tasks": [], "Tags": []},
+                            ],
+                            "TotalCount": 2,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(ms_mod.requests, "put",
+            lambda url, json, timeout, headers: FakeResponse())
+
+        results = ms_mod.search_modelscope("test")
+        assert len(results) == 1
+        assert results[0].id == "a/good"
+
 
 # ── Orchestrator ────────────────────────────────────────────────
 
@@ -356,6 +1072,240 @@ class TestSearchOrchestrator:
     def test_unknown_source_raises(self):
         with pytest.raises(ValueError, match="Unknown source"):
             search("test", source="bad")
+
+    def test_before_date_filter(self, monkeypatch):
+        """Results after the 'before' date should be excluded."""
+        old = _mock_model_info(id="old-model", last_modified=datetime(2022, 1, 1, tzinfo=timezone.utc))
+        new = _mock_model_info(id="new-model", last_modified=datetime(2024, 6, 1, tzinfo=timezone.utc))
+
+        def mock_list_models(self, **kwargs):
+            return [old, new]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf", before="2023-01-01")
+        ids = [r.id for r in results]
+        assert "old-model" in ids
+        assert "new-model" not in ids
+
+    def test_both_after_and_before_filter(self, monkeypatch):
+        """Both after and before filters should work together."""
+        very_old = _mock_model_info(id="very-old", last_modified=datetime(2021, 1, 1, tzinfo=timezone.utc))
+        mid = _mock_model_info(id="mid", last_modified=datetime(2023, 6, 1, tzinfo=timezone.utc))
+        very_new = _mock_model_info(id="very-new", last_modified=datetime(2025, 1, 1, tzinfo=timezone.utc))
+
+        def mock_list_models(self, **kwargs):
+            return [very_old, mid, very_new]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf", after="2022-01-01", before="2024-01-01")
+        ids = [r.id for r in results]
+        assert "mid" in ids
+        assert "very-old" not in ids
+        assert "very-new" not in ids
+
+    def test_result_without_date_passed_through(self, monkeypatch):
+        """Results with no last_modified date should pass through date filter."""
+        no_date = _mock_model_info(id="no-date", last_modified=None)
+
+        def mock_list_models(self, **kwargs):
+            return [no_date]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf", after="2024-01-01")
+        assert len(results) == 1
+        assert results[0].id == "no-date"
+
+    def test_sort_by_likes(self, monkeypatch):
+        low_likes = _mock_model_info(id="low", downloads=1000, likes=10)
+        high_likes = _mock_model_info(id="high", downloads=10, likes=5000)
+
+        def mock_list_models(self, **kwargs):
+            return [low_likes, high_likes]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf", sort="likes", direction="desc")
+        assert results[0].id == "high"
+        assert results[1].id == "low"
+
+    def test_sort_by_last_modified(self, monkeypatch):
+        older = _mock_model_info(id="older", last_modified=datetime(2023, 1, 1, tzinfo=timezone.utc))
+        newer = _mock_model_info(id="newer", last_modified=datetime(2024, 6, 1, tzinfo=timezone.utc))
+
+        def mock_list_models(self, **kwargs):
+            return [older, newer]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf", sort="lastModified", direction="desc")
+        assert results[0].id == "newer"
+        assert results[1].id == "older"
+
+    def test_sort_by_created_at(self, monkeypatch):
+        older = _mock_model_info(id="older", created_at=datetime(2022, 1, 1, tzinfo=timezone.utc))
+        newer = _mock_model_info(id="newer", created_at=datetime(2023, 6, 1, tzinfo=timezone.utc))
+
+        def mock_list_models(self, **kwargs):
+            return [older, newer]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf", sort="created_at", direction="desc")
+        assert results[0].id == "newer"
+        assert results[1].id == "older"
+
+    def test_sort_asc_direction(self, monkeypatch):
+        low = _mock_model_info(id="low", downloads=100)
+        high = _mock_model_info(id="high", downloads=10000)
+
+        def mock_list_models(self, **kwargs):
+            return [high, low]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf", sort="downloads", direction="asc")
+        assert results[0].id == "low"
+        assert results[1].id == "high"
+
+    def test_task_passed_to_orchestrator(self, monkeypatch):
+        """Task parameter should be forwarded to HF backend."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        search("test", source="hf", task="text-classification")
+        assert "filter" in captured
+        assert "text-classification" in captured["filter"]
+
+    def test_library_passed_to_orchestrator(self, monkeypatch):
+        """Library parameter should be forwarded to HF backend."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        search("test", source="hf", library="transformers")
+        assert "transformers" in captured["filter"]
+
+    def test_author_passed_to_orchestrator(self, monkeypatch):
+        """Author parameter should be forwarded to HF backend."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        search("test", source="hf", author="test-org")
+        assert captured["author"] == "test-org"
+
+    def test_source_all_parallel_fetch(self, monkeypatch):
+        """When source='all', both HF and MS backends should be called."""
+        hf_called = []
+        ms_called = []
+
+        def mock_list_models(self, **kwargs):
+            hf_called.append(True)
+            return [_mock_model_info(id="hf-model")]
+
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "a", "Name": "b", "Downloads": 100, "Stars": 5, "Tasks": [], "Tags": []}
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        monkeypatch.setattr(ms_mod.requests, "put", lambda url, json, timeout, headers: FakeResponse())
+
+        results = search("test", source="all")
+        assert len(hf_called) > 0
+        assert len(results) >= 1
+        sources = {r.source for r in results}
+        assert "hf" in sources
+        assert "ms" in sources
+
+    def test_source_all_hf_error_does_not_block_ms(self, monkeypatch):
+        """When HF backend fails, MS results should still be returned."""
+        def mock_list_models(self, **kwargs):
+            raise RuntimeError("HF down")
+
+        class FakeResponse:
+            def json(self):
+                return {
+                    "Data": {
+                        "Model": {
+                            "Models": [
+                                {"Path": "a", "Name": "b", "Downloads": 100, "Stars": 5, "Tasks": [], "Tags": []}
+                            ],
+                            "TotalCount": 1,
+                        }
+                    }
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        monkeypatch.setattr(ms_mod.requests, "put", lambda url, json, timeout, headers: FakeResponse())
+
+        results = search("test", source="all")
+        assert len(results) >= 1
+        assert all(r.source == "ms" for r in results)
+
+    def test_full_flag_passed_through(self, monkeypatch):
+        """The full flag should be forwarded to HF backend."""
+        captured = {}
+
+        def mock_list_models(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        search("test", source="hf", full=True)
+        assert captured["full"] is True
+
+    def test_repo_type_passed_through(self, monkeypatch):
+        """repo_type should be forwarded; datasets uses list_datasets."""
+        captured = {}
+
+        def mock_list_datasets(self, **kwargs):
+            captured.update(kwargs)
+            return [_mock_model_info(id="org/dataset")]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_datasets", mock_list_datasets)
+        results = search("test", source="hf", repo_type="dataset")
+        assert len(results) == 1
+        assert results[0].id == "org/dataset"
+
+    def test_default_sort_is_downloads(self, monkeypatch):
+        """When no sort specified, default to downloads descending."""
+        low = _mock_model_info(id="low", downloads=100)
+        high = _mock_model_info(id="high", downloads=10000)
+
+        def mock_list_models(self, **kwargs):
+            return [low, high]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = search("test", source="hf")
+        assert results[0].id == "high"
+        assert results[1].id == "low"
 
 
 # ── CLI main ────────────────────────────────────────────────────
