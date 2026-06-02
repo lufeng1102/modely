@@ -19,8 +19,10 @@ def _truncate_url(url: str) -> str:
 
 def _format_count(n: int) -> str:
     """Format large numbers into human-readable form."""
-    if n >= 1_000_000_000:
-        return f"{n / 1_000_000_000:.1f}B"
+def _format_count(n: int | None) -> str:
+    """Format large numbers into human-readable form."""
+    if n is None:
+        return "0"
     if n >= 1_000_000:
         return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
