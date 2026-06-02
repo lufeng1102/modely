@@ -1844,3 +1844,164 @@ class TestCreateTempDir:
         from modely.modelscope import create_temporary_directory_and_cache
         temp_dir, cache_obj = create_temporary_directory_and_cache("owner/model")
         assert os.path.exists(temp_dir)
+
+
+# ── Coverage: Remaining Gaps (unit tests) ───────────────────────
+
+class TestTruncateHelpers:
+    """Test display helper functions in search/display.py."""
+
+    def test_truncate_url_short(self):
+        from modely.search.display import _truncate_url
+        assert _truncate_url("https://example.com/short") == "https://example.com/short"
+
+    def test_truncate_url_long(self):
+        from modely.search.display import _truncate_url
+        long_url = "https://huggingface.co/" + "very-long-path/" * 10
+        result = _truncate_url(long_url)
+        assert len(result) <= 55
+        assert result.endswith("...")
+
+    def test_truncate_id_short(self):
+        from modely.search.display import _truncate_id
+        assert _truncate_id("owner/repo") == "owner/repo"
+
+    def test_truncate_id_long(self):
+        from modely.search.display import _truncate_id
+        long_id = "x" * 60
+        result = _truncate_id(long_id)
+        assert len(result) <= 45
+        assert result.endswith("...")
+
+
+class TestParseDate:
+    """Test _parse_date helper in search/__init__.py."""
+
+    def test_valid_iso(self):
+        from modely.search import _parse_date
+        result = _parse_date("2024-06-01T12:00:00+00:00")
+        assert result.year == 2024
+        assert result.month == 6
+
+    def test_none_returns_min(self):
+        from modely.search import _parse_date
+        from datetime import datetime
+        result = _parse_date(None)
+        assert result == datetime.min.replace(tzinfo=None)
+
+    def test_short_date(self):
+        from modely.search import _parse_date
+        result = _parse_date("2024-06-01")
+        assert result.year == 2024
+        assert result.month == 6
+        assert result.day == 1
+
+
+class TestApplyDateFilter:
+    """Test _apply_date_filter in search/__init__.py."""
+
+    def test_no_filters_returns_all(self):
+        from modely.search import _apply_date_filter
+        from modely.search import SearchResult
+        results = [
+            SearchResult(id="a", source="hf", repo_type="model", last_modified="2024-06-01"),
+            SearchResult(id="b", source="hf", repo_type="model", last_modified="2023-01-01"),
+        ]
+        filtered = _apply_date_filter(results, None, None)
+        assert len(filtered) == 2
+
+    def test_after_filter(self):
+        from modely.search import _apply_date_filter
+        from modely.search import SearchResult
+        results = [
+            SearchResult(id="old", source="hf", repo_type="model", last_modified="2022-01-01"),
+            SearchResult(id="new", source="hf", repo_type="model", last_modified="2024-06-01"),
+        ]
+        filtered = _apply_date_filter(results, "2023-01-01", None)
+        assert [r.id for r in filtered] == ["new"]
+
+    def test_before_filter(self):
+        from modely.search import _apply_date_filter
+        from modely.search import SearchResult
+        results = [
+            SearchResult(id="old", source="hf", repo_type="model", last_modified="2022-01-01"),
+            SearchResult(id="new", source="hf", repo_type="model", last_modified="2024-06-01"),
+        ]
+        filtered = _apply_date_filter(results, None, "2023-01-01")
+        assert [r.id for r in filtered] == ["old"]
+
+    def test_no_date_passed_through(self):
+        from modely.search import _apply_date_filter
+        from modely.search import SearchResult
+        results = [
+            SearchResult(id="a", source="hf", repo_type="model", last_modified=None),
+            SearchResult(id="b", source="hf", repo_type="model", last_modified="2024-01-01"),
+        ]
+        filtered = _apply_date_filter(results, "2023-01-01", None)
+        assert len(filtered) == 2  # None-date always included
+
+
+class TestModelScopeHelpers:
+    """Test remaining ModelScope helper functions."""
+
+    def test_get_model_cache_root(self, tmp_path, monkeypatch):
+        from modely.modelscope import get_model_cache_root
+        import modely.common.cache as c
+        monkeypatch.setattr(c, "get_source_cache_dir", lambda source, cache_dir: str(tmp_path))
+        result = get_model_cache_root(str(tmp_path))
+        assert result.endswith("models")
+
+    def test_get_dataset_cache_root(self, tmp_path, monkeypatch):
+        from modely.modelscope import get_dataset_cache_root
+        import modely.common.cache as c
+        monkeypatch.setattr(c, "get_source_cache_dir", lambda source, cache_dir: str(tmp_path))
+        result = get_dataset_cache_root(str(tmp_path))
+        assert result.endswith("datasets")
+
+
+class TestGitHubHelpers:
+    """Test GitHub module helper functions."""
+
+    def test_get_default_branch_main_exists(self, monkeypatch):
+        from modely.github import get_default_branch
+
+        class FakeResponse:
+            status_code = 200
+            def json(self):
+                return {"default_branch": "main"}
+            def raise_for_status(self):
+                pass
+
+        def fake_get(url, headers, timeout):
+            return FakeResponse()
+
+        monkeypatch.setattr("modely.github.requests.get", fake_get)
+        result = get_default_branch("owner/repo")
+        assert result == "main"
+
+    def test_get_default_branch_master(self, monkeypatch):
+        from modely.github import get_default_branch
+
+        class FakeResponse:
+            status_code = 200
+            def json(self):
+                return {"default_branch": "master"}
+            def raise_for_status(self):
+                pass
+
+        def fake_get(url, headers, timeout):
+            return FakeResponse()
+
+        monkeypatch.setattr("modely.github.requests.get", fake_get)
+        result = get_default_branch("owner/repo")
+        assert result == "master"
+
+    def test_get_default_branch_error_returns_none(self, monkeypatch):
+        from modely.github import get_default_branch
+
+        def fake_get(url, headers, timeout):
+            raise Exception("network error")
+
+        monkeypatch.setattr("modely.github.requests.get", fake_get)
+        result = get_default_branch("owner/repo")
+        assert result is None
