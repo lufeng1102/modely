@@ -209,7 +209,7 @@ def github_clone(
         proc = subprocess.Popen(
             clone_cmd,
             cwd=cwd,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
         )
