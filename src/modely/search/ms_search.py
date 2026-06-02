@@ -28,19 +28,27 @@ def _to_iso(ts) -> Optional[str]:
 
 
 def _build_search_body(
-    keyword: str,
+    keyword: Optional[str],
     task: Optional[str],
     limit: int,
     page: int = 1,
+    sort: str = "downloads",
 ) -> Dict:
     """Build the JSON body for ModelScope dolphin search API."""
+    # Map our sort fields to dolphin SortBy values
+    _SORT_MAP = {
+        "downloads": "downloads",
+        "lastModified": "last_updated",
+        "likes": "likes",
+        "created_at": "created_at",
+    }
     body: Dict = {
         "PageSize": limit,
         "PageNumber": page,
-        "Name": keyword,
+        "Name": keyword or "",
         "tags": [],
         "tasks": [],
-        "SortBy": "Default",
+        "SortBy": _SORT_MAP.get(sort, "downloads"),
     }
     if task:
         body["tasks"] = [task]
@@ -100,7 +108,7 @@ def _parse_model_item(item: Dict) -> SearchResult:
 
 
 def search_modelscope(
-    keyword: str,
+    keyword: Optional[str] = None,
     *,
     repo_type: str = "model",
     task: Optional[str] = None,
@@ -115,7 +123,7 @@ def search_modelscope(
     """
     endpoint = os.environ.get("MODELSCOPE_ENDPOINT", "https://www.modelscope.cn")
     url = _SEARCH_URL.format(endpoint=endpoint)
-    body = _build_search_body(keyword, task, limit)
+    body = _build_search_body(keyword, task, limit, sort=sort)
 
     try:
         response = requests.put(

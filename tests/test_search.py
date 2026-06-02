@@ -713,7 +713,7 @@ class TestModelScopeSearch:
         def mock_put(url, json, timeout, headers):
             captured["body"] = json
             resp = ms_mod.requests.Response()
-            resp.status_code == 200
+            resp.status_code = 200
             resp.json = lambda: {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
             return resp
 

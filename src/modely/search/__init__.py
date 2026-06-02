@@ -60,7 +60,7 @@ def _apply_date_filter(
 
 
 def search(
-    keyword: str,
+    keyword: Optional[str] = None,
     *,
     source: str = "all",
     repo_type: str = "model",
@@ -111,6 +111,10 @@ def search(
         )
 
     def _fetch_ms():
+        if repo_type == "dataset":
+            import sys
+            print("Warning: ModelScope dataset search is not yet supported.", file=sys.stderr)
+            return []
         if library:
             warnings.warn("--library filter is not supported on ModelScope, ignoring.")
         if license:

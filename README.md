@@ -105,6 +105,9 @@ modely-ai github owner/private-repo --token YOUR_GITHUB_TOKEN
 Search for models and datasets across Hugging Face and ModelScope with a unified interface:
 
 ```bash
+# Browse top models without a keyword
+modely-ai search --source hf --limit 10
+
 # Search Hugging Face for models matching "gpt2"
 modely-ai search gpt2 --source hf --limit 10
 
@@ -120,8 +123,11 @@ modely-ai search bert --task text-classification
 # Filter by library and sort by likes
 modely-ai search llama --library transformers --sort likes
 
-# Filter by date range (last modified after 2024)
-modely-ai search gpt2 --after 2024-01-01
+# Filter by date range (created after 2024)
+modely-ai search gpt2 --after 2024-01-01 --sort created_at
+
+# Sort by newest first
+modely-ai search qwen --sort lastModified --direction desc
 
 # JSON output for scripting
 modely-ai search gpt2 --source hf --json | jq '.[].id'
@@ -130,7 +136,9 @@ modely-ai search gpt2 --source hf --json | jq '.[].id'
 modely-ai search qwen --source all
 ```
 
-Search results are displayed as a table showing source, model ID, task type, downloads, likes, dates, and the model's web page URL.
+Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the model's web page URL. The keyword argument is optional — omit it to browse all models. ModelScope currently supports model search only (dataset search on ModelScope is not yet available).
+
+
 
 #### Watch Hugging Face and ModelScope for Updates
 
@@ -386,8 +394,10 @@ Options:
 ### Search Commands
 
 ```bash
-modely-ai search <keyword> [OPTIONS]
+modely-ai search [keyword] [OPTIONS]
 ```
+
+Search is available for both Hugging Face (models and datasets) and ModelScope (models only). The keyword is optional — omit it to browse all models.
 
 Options:
 - `--source, -s {hf,ms,all}`: Platform to search (default: all)

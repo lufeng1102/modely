@@ -17,7 +17,7 @@ _SORT_MAP = {
 
 
 def search_huggingface(
-    keyword: str,
+    keyword: Optional[str] = None,
     *,
     repo_type: str = "model",
     task: Optional[str] = None,
