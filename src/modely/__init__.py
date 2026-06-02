@@ -215,11 +215,11 @@ def main():
     search_parser = subparsers.add_parser("search", help="Search for models and datasets")
     search_parser.add_argument("keyword", type=str, nargs="?", default=None, help="Search keyword for model/dataset name")
     search_parser.add_argument(
-        "--source", "-s", choices=["hf", "ms", "all"], default="all",
+        "--source", "-s", choices=["hf", "ms", "github", "all"], default="all",
         help="Platform to search (default: all)",
     )
     search_parser.add_argument(
-        "--repo-type", "-t", choices=["model", "dataset"], default="model",
+        "--repo-type", "-t", choices=["model", "dataset", "tool"], default="model",
         help="Type of repository (default: model)",
     )
     search_parser.add_argument(

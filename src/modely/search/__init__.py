@@ -1,6 +1,6 @@
 """
 Search module for modely-ai — unified model and dataset discovery across
-Hugging Face and ModelScope.
+Hugging Face, ModelScope, and GitHub.
 """
 
 import json
@@ -13,6 +13,7 @@ from typing import List, Optional
 from .types import SearchResult
 from .hf_search import search_huggingface
 from .ms_search import search_modelscope
+from .gh_search import search_github
 from .display import format_table, format_json
 
 
@@ -125,13 +126,26 @@ def search(
             limit=limit,
         )
 
+    def _fetch_gh():
+        if library:
+            warnings.warn("--library filter is not supported on GitHub, ignoring.")
+        if license:
+            warnings.warn("--license filter is not supported on GitHub, ignoring.")
+        return search_github(
+            keyword=keyword,
+            sort=sort,
+            direction=direction,
+            limit=limit,
+        )
+
     all_results: List[SearchResult] = []
 
     if source == "all":
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
                 executor.submit(_fetch_hf): "hf",
                 executor.submit(_fetch_ms): "ms",
+                executor.submit(_fetch_gh): "github",
             }
             for future in as_completed(futures):
                 try:
@@ -142,6 +156,8 @@ def search(
         all_results = _fetch_hf()
     elif source == "ms":
         all_results = _fetch_ms()
+    elif source == "github":
+        all_results = _fetch_gh()
     else:
         raise ValueError(f"Unknown source: {source}")
 
@@ -187,4 +203,4 @@ def main(args) -> None:
         sys.exit(1)
 
 
-__all__ = ["search", "search_huggingface", "search_modelscope", "SearchResult", "main"]
+__all__ = ["search", "search_huggingface", "search_modelscope", "search_github", "SearchResult", "main"]

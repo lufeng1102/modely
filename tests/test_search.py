@@ -9,6 +9,8 @@ import pytest
 import modely  # noqa: ensure package is imported before submodule access
 import modely.search.hf_search as hf_mod
 import modely.search.ms_search as ms_mod
+import modely.search as search_mod
+import modely.search.gh_search as gh_mod
 from modely.search import SearchResult, search, main as search_main
 from modely.search.display import format_table, format_json, _format_count, _format_date
 
@@ -1239,9 +1241,10 @@ class TestSearchOrchestrator:
         assert captured["author"] == "test-org"
 
     def test_source_all_parallel_fetch(self, monkeypatch):
-        """When source='all', both HF and MS backends should be called."""
+        """When source='all', HF, MS and GitHub backends should be called."""
         hf_called = []
         ms_called = []
+        gh_called = []
 
         def mock_list_models(self, **kwargs):
             hf_called.append(True)
@@ -1264,6 +1267,8 @@ class TestSearchOrchestrator:
 
         monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
         monkeypatch.setattr(ms_mod.requests, "put", lambda url, json, timeout, headers: FakeResponse())
+        # Mock GitHub search to return empty (unit test, no network)
+        monkeypatch.setattr(search_mod, "search_github", lambda **kwargs: [])
 
         results = search("test", source="all")
         assert len(hf_called) > 0
@@ -1294,6 +1299,8 @@ class TestSearchOrchestrator:
 
         monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
         monkeypatch.setattr(ms_mod.requests, "put", lambda url, json, timeout, headers: FakeResponse())
+        # Mock GitHub search to return empty
+        monkeypatch.setattr(search_mod, "search_github", lambda **kwargs: [])
 
         results = search("test", source="all")
         assert len(results) >= 1
@@ -1476,3 +1483,182 @@ class TestSearchIntegration:
         )
         assert result.returncode == 0
         json.loads(result.stdout)
+
+
+# ── GitHub Search (unit) ─────────────────────────────────────────
+
+class TestGitHubSearch:
+    def test_returns_list_of_search_results(self, monkeypatch):
+        fake_response = {
+            "items": [
+                {
+                    "full_name": "huggingface/transformers",
+                    "html_url": "https://github.com/huggingface/transformers",
+                    "description": "Transformers framework",
+                    "stargazers_count": 150000,
+                    "forks_count": 25000,
+                    "language": "Python",
+                    "topics": ["nlp", "pytorch"],
+                    "license": {"spdx_id": "Apache-2.0"},
+                    "owner": {"login": "huggingface"},
+                    "created_at": "2018-10-29T13:56:00Z",
+                    "updated_at": "2024-06-01T12:00:00Z",
+                }
+            ]
+        }
+
+        def mock_get(url, params, headers, timeout):
+            resp = gh_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: fake_response
+            return resp
+
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+
+        results = gh_mod.search_github("transformers")
+        assert len(results) == 1
+        r = results[0]
+        assert r.id == "huggingface/transformers"
+        assert r.source == "github"
+        assert r.likes == 150000
+        assert r.downloads == 25000
+        assert r.pipeline_tag == "Python"
+        assert "Apache-2.0" in r.license
+        assert "nlp" in r.tags
+
+    def test_empty_results(self, monkeypatch):
+        def mock_get(url, params, headers, timeout):
+            resp = gh_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: {"items": []}
+            return resp
+
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+        results = gh_mod.search_github("xyznonexistent")
+        assert results == []
+
+    def test_error_handled_gracefully(self, monkeypatch):
+        def mock_get(url, params, headers, timeout):
+            raise gh_mod.requests.exceptions.ConnectionError()
+
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+        results = gh_mod.search_github("test")
+        assert results == []
+
+    def test_timeout_handled(self, monkeypatch):
+        def mock_get(url, params, headers, timeout):
+            raise gh_mod.requests.exceptions.Timeout()
+
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+        results = gh_mod.search_github("test")
+        assert results == []
+
+    def test_maps_stars_to_likes(self, monkeypatch):
+        fake_response = {
+            "items": [{
+                "full_name": "user/repo",
+                "html_url": "https://github.com/user/repo",
+                "stargazers_count": 42,
+                "forks_count": 10,
+                "language": None,
+                "topics": [],
+                "license": None,
+                "owner": {"login": "user"},
+                "created_at": "2023-01-01T00:00:00Z",
+                "updated_at": "2023-01-01T00:00:00Z",
+            }]
+        }
+        def mock_get(url, params, headers, timeout):
+            resp = gh_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: fake_response
+            return resp
+
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+        results = gh_mod.search_github("test")
+        assert results[0].likes == 42
+        assert results[0].downloads == 10
+
+    def test_maps_language_to_pipeline_tag(self, monkeypatch):
+        fake_response = {
+            "items": [{
+                "full_name": "user/repo",
+                "html_url": "https://github.com/user/repo",
+                "stargazers_count": 1,
+                "forks_count": 1,
+                "language": "Rust",
+                "topics": [],
+                "license": None,
+                "owner": {"login": "user"},
+                "created_at": "2023-01-01T00:00:00Z",
+                "updated_at": "2023-01-01T00:00:00Z",
+            }]
+        }
+        def mock_get(url, params, headers, timeout):
+            resp = gh_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: fake_response
+            return resp
+
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+        results = gh_mod.search_github("test")
+        assert results[0].pipeline_tag == "Rust"
+
+    def test_source_github_single(self, monkeypatch):
+        """search(source='github') should return only GitHub results."""
+        def mock_get(url, params, headers, timeout):
+            resp = gh_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: {
+                "items": [{
+                    "full_name": "user/repo", "html_url": "https://github.com/user/repo",
+                    "stargazers_count": 10, "forks_count": 5, "language": "Go",
+                    "topics": [], "license": None, "owner": {"login": "user"},
+                    "created_at": "2023-01-01T00:00:00Z", "updated_at": "2023-01-01T00:00:00Z",
+                }]
+            }
+            return resp
+
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+        results = search("test", source="github")
+        assert len(results) >= 1
+        assert all(r.source == "github" for r in results)
+
+    def test_gh_search_included_in_all(self, monkeypatch):
+        """source='all' should include GitHub results alongside HF and MS."""
+        # HF mock
+        def mock_list_models(self, **kwargs):
+            return [_mock_model_info(id="hf-model")]
+
+        # MS mock
+        class FakeMSResponse:
+            def json(self):
+                return {"Data": {"Model": {"Models": [
+                    {"Path": "a", "Name": "b", "Downloads": 100, "Stars": 5, "Tasks": [], "Tags": []}
+                ], "TotalCount": 1}}}
+            def raise_for_status(self):
+                pass
+
+        # GH mock
+        def mock_get(url, params, headers, timeout):
+            resp = gh_mod.requests.Response()
+            resp.status_code = 200
+            resp.json = lambda: {
+                "items": [{
+                    "full_name": "gh/repo", "html_url": "https://github.com/gh/repo",
+                    "stargazers_count": 1, "forks_count": 1, "language": "Python",
+                    "topics": [], "license": None, "owner": {"login": "gh"},
+                    "created_at": "2023-01-01T00:00:00Z", "updated_at": "2023-01-01T00:00:00Z",
+                }]
+            }
+            return resp
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+        monkeypatch.setattr(ms_mod.requests, "put", lambda url, json, timeout, headers: FakeMSResponse())
+        monkeypatch.setattr(gh_mod.requests, "get", mock_get)
+
+        results = search("test", source="all")
+        sources = {r.source for r in results}
+        assert "hf" in sources
+        assert "ms" in sources
+        assert "github" in sources
