@@ -121,6 +121,8 @@ def search_modelscope(
     Uses the PUT-method dolphin API. Currently only supports models
     (datasets use a different, less-documented endpoint).
     """
+    if repo_type != "model":
+        return []
     endpoint = os.environ.get("MODELSCOPE_ENDPOINT", "https://www.modelscope.cn")
     url = _SEARCH_URL.format(endpoint=endpoint)
     body = _build_search_body(keyword, task, limit, sort=sort)
