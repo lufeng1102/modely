@@ -496,35 +496,39 @@ class TestModelScopeSearch:
         assert results[0].pipeline_tag == "text-generation"
 
     def test_dataset_search_returns_results(self, monkeypatch):
-        """Dataset search should work via dolphin API with ResourceType=dataset."""
+        """Dataset search should use OpenAPI v1 endpoint and return proper results."""
         class FakeResponse:
             def json(self):
                 return {
-                    "Data": {
-                        "Model": {
-                            "Models": [
-                                {
-                                    "Path": "owner",
-                                    "Name": "test-dataset",
-                                    "Downloads": 100,
-                                    "Stars": 5,
-                                    "Tasks": [],
-                                    "Tags": [],
-                                }
-                            ],
-                            "TotalCount": 1,
-                        }
-                    }
+                    "success": True,
+                    "data": {
+                        "datasets": [
+                            {
+                                "id": "owner/test-dataset",
+                                "display_name": "test-dataset",
+                                "description": "A test dataset",
+                                "downloads": 100,
+                                "likes": 5,
+                                "tasks": ["text-classification"],
+                                "tags": ["nlp"],
+                                "license": "mit",
+                                "created_at": "2024-01-15T00:00:00Z",
+                                "last_modified": "2024-06-01T12:00:00Z",
+                            }
+                        ],
+                        "total_count": 1,
+                    },
                 }
             def raise_for_status(self):
                 pass
 
-        monkeypatch.setattr(ms_mod.requests, "put",
-            lambda url, json, timeout, headers: FakeResponse())
+        monkeypatch.setattr(ms_mod.requests, "get",
+            lambda url, params, timeout, headers: FakeResponse())
 
         results = ms_mod.search_modelscope("test", repo_type="dataset")
         assert len(results) == 1
         assert results[0].repo_type == "dataset"
+        assert results[0].id == "owner/test-dataset"
         assert "datasets" in results[0].url
 
     def test_timeout_handled(self, monkeypatch):
