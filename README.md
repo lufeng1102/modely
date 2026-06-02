@@ -127,7 +127,7 @@ modely-ai github owner/private-repo --token YOUR_GITHUB_TOKEN
 
 #### Search Models and Datasets
 
-Search for models and datasets across Hugging Face and ModelScope with a unified interface:
+Search for models, datasets, and AI/ML repositories across Hugging Face, ModelScope, and GitHub with a unified interface:
 
 ```bash
 # Browse top models without a keyword
@@ -139,8 +139,14 @@ modely-ai search gpt2 --source hf --limit 10
 # Search ModelScope for models matching "qwen"
 modely-ai search qwen --source ms --limit 10
 
+# Search GitHub for AI/ML repositories matching "llama"
+modely-ai search llama --source github --limit 10
+
 # Search Hugging Face datasets
 modely-ai search glue --source hf --repo-type dataset
+
+# Search ModelScope datasets
+modely-ai search mnist --source ms --repo-type dataset
 
 # Filter by task type
 modely-ai search bert --task text-classification
@@ -157,11 +163,11 @@ modely-ai search qwen --sort lastModified --direction desc
 # JSON output for scripting
 modely-ai search gpt2 --source hf --json | jq '.[].id'
 
-# Search both platforms simultaneously
+# Search all three platforms simultaneously
 modely-ai search qwen --source all
 ```
 
-Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the model's web page URL. The keyword argument is optional — omit it to browse all models. ModelScope currently supports model search only (dataset search on ModelScope is not yet available).
+Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. The keyword argument is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads.
 
 
 
@@ -432,11 +438,11 @@ Options:
 modely-ai search [keyword] [OPTIONS]
 ```
 
-Search is available for both Hugging Face (models and datasets) and ModelScope (models only). The keyword is optional — omit it to browse all models.
+Search is available across Hugging Face (models and datasets), ModelScope (models and datasets), and GitHub (AI/ML repositories). The keyword is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads.
 
 Options:
-- `--source, -s {hf,ms,all}`: Platform to search (default: all)
-- `--repo-type, -t {model,dataset}`: Type of repository (default: model)
+- `--source, -s {hf,ms,github,all}`: Platform to search (default: all)
+- `--repo-type, -t {model,dataset,tool}`: Type of repository (default: model; GitHub uses `tool`)
 - `--task TASK`: Filter by task type (e.g., text-classification, text-generation)
 - `--library LIBRARY`: Filter by library, HF only (e.g., transformers, pytorch)
 - `--license LICENSE`: Filter by license, HF only
