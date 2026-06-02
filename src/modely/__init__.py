@@ -1,3 +1,4 @@
+import os
 import sys
 import argparse
 from .modelscope import (
@@ -27,6 +28,119 @@ from .search import SearchResult, main as search_main
 from .common import cache
 
 
+def _format_file_size(size_bytes):
+    """Format bytes into human-readable form."""
+    if size_bytes is None or size_bytes == 0:
+        return "-"
+    if size_bytes >= 1_000_000_000:
+        return f"{size_bytes / 1_000_000_000:.1f} GB"
+    if size_bytes >= 1_000_000:
+        return f"{size_bytes / 1_000_000:.1f} MB"
+    if size_bytes >= 1_000:
+        return f"{size_bytes / 1_000:.1f} KB"
+    return f"{size_bytes} B"
+
+
+def _print_file_list(files, source, repo_id):
+    """Print a formatted table of repository files."""
+    if not files:
+        print(f"No files found in {repo_id}")
+        return
+
+    headers = ["Path", "Size", "Type"]
+    rows = []
+    col_widths = [len(h) for h in headers]
+
+    for f in files:
+        row = [
+            f.get("Path", f.get("path", "-")),
+            _format_file_size(f.get("Size", f.get("size", 0))),
+            f.get("Type", f.get("type", "blob")),
+        ]
+        rows.append(row)
+        for i, cell in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(str(cell)))
+
+    # Truncate long paths
+    max_path = min(col_widths[0], 70)
+    separator = "  ".join("-" * w for w in col_widths)
+    header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
+
+    print(f"\n[{source.upper()}] {repo_id}\n")
+    print(header_line)
+    print(separator)
+    for row in rows:
+        path = str(row[0])
+        if len(path) > 70:
+            path = path[:67] + "..."
+        print(f"{path.ljust(col_widths[0])}  {str(row[1]).ljust(col_widths[1])}  {str(row[2]).ljust(col_widths[2])}")
+    print(f"\n{len(files)} file(s) shown.\n")
+
+
+def _do_dry_run(source, repo_id, repo_type, revision, allow_patterns, ignore_patterns, files):
+    """Simulate what would be downloaded and print a summary."""
+    import fnmatch
+
+    blobs = [f for f in files if f.get("Type", f.get("type", "")) != "tree"]
+
+    # Apply filters
+    filtered = blobs
+    if allow_patterns:
+        filtered = [f for f in filtered
+                    if any(fnmatch.fnmatch(f.get("Path", f.get("path", "")), p) for p in allow_patterns)]
+    if ignore_patterns:
+        filtered = [f for f in filtered
+                    if not any(fnmatch.fnmatch(f.get("Path", f.get("path", "")), p) for p in ignore_patterns)]
+
+    total_size = sum(f.get("Size", f.get("size", 0)) or 0 for f in filtered)
+
+    print(f"\n[{source.upper()}] {repo_id} (dry-run)")
+    print(f"  Repository type: {repo_type}")
+    print(f"  Revision:        {revision}")
+    print(f"  Total files:     {len(blobs)}")
+    if allow_patterns:
+        print(f"  Include:         {' '.join(allow_patterns)}")
+    if ignore_patterns:
+        print(f"  Exclude:         {' '.join(ignore_patterns)}")
+    print(f"  Would download:  {len(filtered)} file(s), {_format_file_size(total_size)}")
+    print()
+
+
+def _list_hf_files(repo_id, repo_type, revision, token, endpoint):
+    """Fetch file listing from Hugging Face Hub."""
+    from huggingface_hub import HfApi
+    api = HfApi(endpoint=endpoint, token=token)
+    try:
+        paths = api.list_repo_files(repo_id, repo_type=repo_type, revision=revision)
+        # Get size info for each file
+        try:
+            info_list = api.get_paths_info(repo_id, paths, repo_type=repo_type, revision=revision)
+        except Exception:
+            return [{"Path": p, "Size": 0, "Type": "blob"} for p in paths]
+        return [
+            {"Path": p, "Size": getattr(info, "size", 0) or 0, "Type": "blob"}
+            for p, info in zip(paths, info_list)
+        ]
+    except Exception as e:
+        print(f"Warning: Could not list files from HF: {e}", file=sys.stderr)
+        return []
+
+
+def _list_ms_files(repo_id, repo_type, revision, token):
+    """Fetch file listing from ModelScope."""
+    from .modelscope import HubApi
+    api = HubApi(token=token)
+    try:
+        if repo_type == "model":
+            files = api.get_model_files(repo_id, revision=revision)
+        else:
+            files = api.get_dataset_files(repo_id, revision=revision)
+        return files
+    except Exception as e:
+        print(f"Warning: Could not list files from ModelScope: {e}", file=sys.stderr)
+        return []
+
+
 def main():
     parser = argparse.ArgumentParser(prog="modely", description="Modely - A tool for downloading models from various sources")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -43,6 +157,8 @@ def main():
     ms_parser.add_argument('--include', nargs='+', default=None, help='Glob patterns to include (e.g., "*.json" "*.safetensors")')
     ms_parser.add_argument('--exclude', nargs='+', default=None, help='Glob patterns to exclude (e.g., "*.bin" "*.msgpack")')
     ms_parser.add_argument('--endpoint', type=str, default=None, help='ModelScope API endpoint')
+    ms_parser.add_argument('--list-files', action='store_true', help='List remote repository files without downloading')
+    ms_parser.add_argument('--dry-run', action='store_true', help='Show what would be downloaded without downloading')
 
     # Cache management subcommand
     cache_parser = subparsers.add_parser("cache", help="Manage modely cache")
@@ -77,6 +193,8 @@ def main():
     hf_parser.add_argument('--include', nargs='+', default=None, help='Glob patterns to include (e.g., "*.json" "*.safetensors")')
     hf_parser.add_argument('--exclude', nargs='+', default=None, help='Glob patterns to exclude (e.g., "*.bin" "*.msgpack")')
     hf_parser.add_argument('--endpoint', type=str, default=None, help='HF API endpoint (e.g., https://hf-mirror.com)')
+    hf_parser.add_argument('--list-files', action='store_true', help='List remote repository files without downloading')
+    hf_parser.add_argument('--dry-run', action='store_true', help='Show what would be downloaded without downloading')
 
     # GitHub subcommand
     github_parser = subparsers.add_parser("github", help="Download from GitHub")
@@ -158,6 +276,19 @@ def main():
             if getattr(args, 'endpoint', None):
                 os.environ['MODELSCOPE_ENDPOINT'] = args.endpoint
 
+            # --list-files: show remote file listing
+            if getattr(args, 'list_files', False):
+                files = _list_ms_files(args.repo_id, args.repo_type, args.revision, args.token)
+                _print_file_list(files, "ms", args.repo_id)
+                return
+
+            # --dry-run: preview what would be downloaded
+            if getattr(args, 'dry_run', False):
+                files = _list_ms_files(args.repo_id, args.repo_type, args.revision, args.token)
+                _do_dry_run("ms", args.repo_id, args.repo_type, args.revision,
+                            args.include, args.exclude, files)
+                return
+
             if args.file:
                 # Download a specific file
                 if args.repo_type == 'model':
@@ -201,6 +332,19 @@ def main():
             # Set HF endpoint if provided
             if getattr(args, 'endpoint', None):
                 os.environ['HF_ENDPOINT'] = args.endpoint
+
+            # --list-files: show remote file listing
+            if getattr(args, 'list_files', False):
+                files = _list_hf_files(args.repo_id, args.repo_type, args.revision, args.token, args.endpoint)
+                _print_file_list(files, "hf", args.repo_id)
+                return
+
+            # --dry-run: preview what would be downloaded
+            if getattr(args, 'dry_run', False):
+                files = _list_hf_files(args.repo_id, args.repo_type, args.revision, args.token, args.endpoint)
+                _do_dry_run("hf", args.repo_id, args.repo_type, args.revision,
+                            args.include, args.exclude, files)
+                return
 
             if args.file:
                 # Download a specific file

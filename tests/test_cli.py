@@ -1405,3 +1405,173 @@ class TestURLConstruction:
         assert url.startswith("https://modelscope.cn/api/v1/datasets/")
         assert "org/dataset" in url
         assert "Revision=master" in url
+
+
+# ── P1: Dry-run & List-files (unit tests) ───────────────────────
+
+class TestDryRun:
+    """Unit tests for --dry-run preview mode."""
+
+    def test_format_file_size_bytes(self):
+        """_format_file_size should format various byte sizes."""
+        from modely import _format_file_size
+        assert _format_file_size(0) == "-"
+        assert _format_file_size(None) == "-"
+        assert _format_file_size(500) == "500 B"
+        assert _format_file_size(1_500) == "1.5 KB"
+        assert _format_file_size(1_500_000) == "1.5 MB"
+        assert _format_file_size(1_500_000_000) == "1.5 GB"
+
+    def test_dry_run_basic_output(self, capsys):
+        """_do_dry_run should print file counts without downloading."""
+        from modely import _do_dry_run
+
+        files = [
+            {"Path": "config.json", "Size": 1000, "Type": "blob"},
+            {"Path": "model.safetensors", "Size": 500_000_000, "Type": "blob"},
+            {"Path": "tokenizer.json", "Size": 2000, "Type": "blob"},
+        ]
+
+        _do_dry_run("hf", "test/model", "model", "main", None, None, files)
+        out = capsys.readouterr().out
+
+        assert "test/model" in out
+        assert "dry-run" in out
+        assert "Total files:     3" in out
+        assert "Would download:  3" in out
+
+    def test_dry_run_with_filters(self, capsys):
+        """_do_dry_run should apply include/exclude and show filtered count."""
+        from modely import _do_dry_run
+
+        files = [
+            {"Path": "config.json", "Size": 1000, "Type": "blob"},
+            {"Path": "model.safetensors", "Size": 500_000_000, "Type": "blob"},
+            {"Path": "tokenizer.json", "Size": 2000, "Type": "blob"},
+            {"Path": "model.bin", "Size": 300_000_000, "Type": "blob"},
+        ]
+
+        _do_dry_run("hf", "test/model", "model", "main",
+                    ["*.json"], ["*.bin"], files)
+        out = capsys.readouterr().out
+
+        assert "Total files:     4" in out
+        assert "Include:         *.json" in out
+        assert "Exclude:         *.bin" in out
+        assert "Would download:  2" in out  # config.json + tokenizer.json
+
+    def test_dry_run_tree_type_excluded(self, capsys):
+        """Tree-type files should be excluded from download count."""
+        from modely import _do_dry_run
+
+        files = [
+            {"Path": "config.json", "Size": 1000, "Type": "blob"},
+            {"Path": "subdir", "Size": 0, "Type": "tree"},
+            {"Path": "model.bin", "Size": 500, "Type": "blob"},
+        ]
+
+        _do_dry_run("hf", "test/model", "model", "main", None, None, files)
+        out = capsys.readouterr().out
+
+        assert "Total files:     2" in out  # tree excluded
+        assert "Would download:  2" in out
+
+    def test_dry_run_empty_repo(self, capsys):
+        """Dry-run with empty file list should show 0 files."""
+        from modely import _do_dry_run
+        _do_dry_run("hf", "empty/repo", "model", "main", None, None, [])
+        out = capsys.readouterr().out
+        assert "Would download:  0" in out
+
+    def test_print_file_list_basic(self, capsys):
+        """_print_file_list should print a formatted table."""
+        from modely import _print_file_list
+
+        files = [
+            {"Path": "config.json", "Size": 1000, "Type": "blob"},
+            {"Path": "model.safetensors", "Size": 500_000_000, "Type": "blob"},
+        ]
+
+        _print_file_list(files, "hf", "test/model")
+        out = capsys.readouterr().out
+
+        assert "[HF]" in out
+        assert "test/model" in out
+        assert "config.json" in out
+        assert "model.safetensors" in out
+        assert "2 file(s) shown" in out
+
+    def test_print_file_list_empty(self, capsys):
+        """_print_file_list with no files should show not found message."""
+        from modely import _print_file_list
+        _print_file_list([], "hf", "test/model")
+        out = capsys.readouterr().out
+        assert "No files found" in out
+
+
+# ── P1: Dry-run CLI Arg Parsing (unit tests) ────────────────────
+
+class TestDryRunCLI:
+    """Test argparse parsing of --list-files and --dry-run flags."""
+
+    def test_hf_list_files_flag(self):
+        """--list-files should be parsed as True."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--list-files', action='store_true')
+
+        args = parser.parse_args(["hf", "gpt2", "--list-files"])
+        assert args.list_files is True
+
+    def test_hf_dry_run_flag(self):
+        """--dry-run should be parsed as True."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--dry-run', action='store_true')
+
+        args = parser.parse_args(["hf", "gpt2", "--dry-run"])
+        assert args.dry_run is True
+
+    def test_ms_list_files_flag(self):
+        """MS --list-files should be parsed as True."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        ms_parser = subparsers.add_parser("ms")
+        ms_parser.add_argument('repo_id', type=str)
+        ms_parser.add_argument('--list-files', action='store_true')
+
+        args = parser.parse_args(["ms", "owner/model", "--list-files"])
+        assert args.list_files is True
+
+    def test_ms_dry_run_flag(self):
+        """MS --dry-run should be parsed as True."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        ms_parser = subparsers.add_parser("ms")
+        ms_parser.add_argument('repo_id', type=str)
+        ms_parser.add_argument('--dry-run', action='store_true')
+
+        args = parser.parse_args(["ms", "owner/model", "--dry-run"])
+        assert args.dry_run is True
+
+    def test_list_files_dry_run_default_false(self):
+        """Without explicit flags, both should default to False."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--list-files', action='store_true')
+        hf_parser.add_argument('--dry-run', action='store_true')
+
+        args = parser.parse_args(["hf", "gpt2"])
+        assert args.list_files is False
+        assert args.dry_run is False

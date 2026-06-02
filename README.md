@@ -66,6 +66,16 @@ Use a mirror endpoint (for regions where Hugging Face is slow):
 modely-ai hf gpt2 --endpoint https://hf-mirror.com
 ```
 
+List files in a repository without downloading:
+```bash
+modely-ai hf gpt2 --list-files
+```
+
+Preview what would be downloaded (dry-run):
+```bash
+modely-ai hf gpt2 --dry-run --exclude "*.safetensors" "*.bin"
+```
+
 #### Download from ModelScope
 
 Download an entire model repository:
@@ -365,6 +375,8 @@ Options:
 - `--include PATTERN [PATTERN ...]`: Glob patterns to include (e.g., `"*.json" "*.safetensors"`)
 - `--exclude PATTERN [PATTERN ...]`: Glob patterns to exclude (e.g., `"*.bin" "*.msgpack"`)
 - `--endpoint URL`: HF API endpoint for mirrors (e.g., `https://hf-mirror.com`)
+- `--list-files`: List remote repository files without downloading
+- `--dry-run`: Show what would be downloaded (count, total size) without downloading
 
 ### ModelScope Commands
 
@@ -382,6 +394,8 @@ Options:
 - `--include PATTERN [PATTERN ...]`: Glob patterns to include (e.g., `"*.json" "*.safetensors"`)
 - `--exclude PATTERN [PATTERN ...]`: Glob patterns to exclude (e.g., `"*.bin" "*.msgpack"`)
 - `--endpoint URL`: ModelScope API endpoint
+- `--list-files`: List remote repository files without downloading
+- `--dry-run`: Show what would be downloaded (count, total size) without downloading
 
 ### GitHub Commands
 
