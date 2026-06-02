@@ -157,6 +157,7 @@ def main():
     ms_parser.add_argument('--include', nargs='+', default=None, help='Glob patterns to include (e.g., "*.json" "*.safetensors")')
     ms_parser.add_argument('--exclude', nargs='+', default=None, help='Glob patterns to exclude (e.g., "*.bin" "*.msgpack")')
     ms_parser.add_argument('--endpoint', type=str, default=None, help='ModelScope API endpoint')
+    ms_parser.add_argument('--backend', choices=['auto', 'official', 'lightweight'], default='auto', help='ModelScope backend to use (default: auto)')
     ms_parser.add_argument('--list-files', action='store_true', help='List remote repository files without downloading')
     ms_parser.add_argument('--dry-run', action='store_true', help='Show what would be downloaded without downloading')
 
@@ -298,7 +299,8 @@ def main():
                         revision=args.revision,
                         cache_dir=args.cache_dir,
                         local_dir=args.local_dir,
-                        token=args.token
+                        token=args.token,
+                        backend=args.backend
                     )
                 else:
                     result = dataset_file_download(
@@ -307,7 +309,8 @@ def main():
                         revision=args.revision,
                         cache_dir=args.cache_dir,
                         local_dir=args.local_dir,
-                        token=args.token
+                        token=args.token,
+                        backend=args.backend
                     )
                 print(f"Successfully downloaded file to: {result}")
             else:
@@ -321,6 +324,7 @@ def main():
                     token=args.token,
                     allow_patterns=args.include,
                     ignore_patterns=args.exclude,
+                    backend=args.backend,
                 )
                 if result is not None:
                     print(f"Repository download completed. Files are in: {result}")

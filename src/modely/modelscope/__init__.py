@@ -535,7 +535,7 @@ class HubApi:
             print(f"Warning: Could not fetch dataset file list from API: {e}")
             return []
 
-def model_file_download(
+def _lightweight_model_file_download(
     model_id: str,
     file_path: str,
     revision: Optional[str] = DEFAULT_MODEL_REVISION,
@@ -545,7 +545,7 @@ def model_file_download(
     local_dir: Optional[str] = None,
     token: Optional[str] = None,
 ) -> Optional[str]:
-    """Download a specific file from a model repository."""
+    """Download a specific file from a model repository using the lightweight backend."""
     return _repo_file_download(
         model_id,
         file_path,
@@ -558,7 +558,7 @@ def model_file_download(
         token=token)
 
 
-def dataset_file_download(
+def _lightweight_dataset_file_download(
     dataset_id: str,
     file_path: str,
     revision: Optional[str] = DEFAULT_DATASET_REVISION,
@@ -568,7 +568,7 @@ def dataset_file_download(
     cookies: Optional[CookieJar] = None,
     token: Optional[str] = None,
 ) -> str:
-    """Download a specific file from a dataset repository."""
+    """Download a specific file from a dataset repository using the lightweight backend."""
     return _repo_file_download(
         dataset_id,
         file_path,
@@ -579,6 +579,109 @@ def dataset_file_download(
         cookies=cookies,
         local_dir=local_dir,
         token=token)
+
+
+def _normalize_backend(backend: str) -> str:
+    if backend not in {"auto", "official", "lightweight"}:
+        raise ValueError("backend must be one of: auto, official, lightweight")
+    return backend
+
+
+def _should_use_official_backend(backend: str) -> bool:
+    """Decide whether to use the optional official ModelScope SDK backend."""
+    backend = _normalize_backend(backend)
+    if backend == "lightweight":
+        return False
+
+    from . import official_adapter
+
+    available = official_adapter.is_available()
+    if backend == "official" and not available:
+        raise ImportError(
+            "Official ModelScope SDK is not installed. "
+            "Install it with: pip install 'modely-ai[modelscope]'"
+        )
+    return available
+
+
+def model_file_download(
+    model_id: str,
+    file_path: str,
+    revision: Optional[str] = DEFAULT_MODEL_REVISION,
+    cache_dir: Optional[str] = None,
+    local_files_only: Optional[bool] = False,
+    cookies: Optional[CookieJar] = None,
+    local_dir: Optional[str] = None,
+    token: Optional[str] = None,
+    backend: str = "auto",
+) -> Optional[str]:
+    """Download a specific model file using official SDK or lightweight backend."""
+    if _should_use_official_backend(backend):
+        from . import official_adapter
+        try:
+            return official_adapter.model_file_download(
+                model_id=model_id,
+                file_path=file_path,
+                revision=revision,
+                cache_dir=cache_dir,
+                local_dir=local_dir,
+                token=token,
+            )
+        except Exception:
+            if backend == "official":
+                raise
+            print("Warning: Official ModelScope SDK failed, falling back to lightweight backend.")
+
+    return _lightweight_model_file_download(
+        model_id=model_id,
+        file_path=file_path,
+        revision=revision,
+        cache_dir=cache_dir,
+        local_files_only=local_files_only,
+        cookies=cookies,
+        local_dir=local_dir,
+        token=token,
+    )
+
+
+def dataset_file_download(
+    dataset_id: str,
+    file_path: str,
+    revision: Optional[str] = DEFAULT_DATASET_REVISION,
+    cache_dir: Union[str, Path, None] = None,
+    local_dir: Optional[str] = None,
+    local_files_only: Optional[bool] = False,
+    cookies: Optional[CookieJar] = None,
+    token: Optional[str] = None,
+    backend: str = "auto",
+) -> str:
+    """Download a dataset file using official SDK or lightweight backend."""
+    if _should_use_official_backend(backend):
+        from . import official_adapter
+        try:
+            return official_adapter.dataset_file_download(
+                dataset_id=dataset_id,
+                file_path=file_path,
+                revision=revision,
+                cache_dir=cache_dir,
+                local_dir=local_dir,
+                token=token,
+            )
+        except Exception:
+            if backend == "official":
+                raise
+            print("Warning: Official ModelScope SDK failed, falling back to lightweight backend.")
+
+    return _lightweight_dataset_file_download(
+        dataset_id=dataset_id,
+        file_path=file_path,
+        revision=revision,
+        cache_dir=cache_dir,
+        local_dir=local_dir,
+        local_files_only=local_files_only,
+        cookies=cookies,
+        token=token,
+    )
 
 
 def _repo_file_download(
@@ -760,7 +863,7 @@ def create_temporary_directory(repo_id: str, local_dir: str = None, cache_dir: s
     return temporary_cache_dir
 
 
-def snapshot_download(
+def _lightweight_snapshot_download(
     repo_id: str,
     repo_type: str = REPO_TYPE_MODEL,
     revision: Optional[str] = None,
@@ -773,7 +876,7 @@ def snapshot_download(
     allow_patterns: Optional[List[str]] = None,
     ignore_patterns: Optional[List[str]] = None,
 ) -> str:
-    """Download all files from a repository.
+    """Download all files from a repository using the lightweight backend.
 
     Args:
         allow_patterns: Glob patterns to include (e.g., ["*.json"]). If set, only matching files are downloaded.
@@ -879,6 +982,52 @@ def snapshot_download(
     else:
         return ms_cache.get_repo_cache_dir(repo_id, repo_type, revision, "ms", cache_dir)
 
+def snapshot_download(
+    repo_id: str,
+    repo_type: str = REPO_TYPE_MODEL,
+    revision: Optional[str] = None,
+    cache_dir: Union[str, Path, None] = None,
+    local_files_only: Optional[bool] = False,
+    cookies: Optional[CookieJar] = None,
+    local_dir: Optional[str] = None,
+    token: Optional[str] = None,
+    force_download: bool = False,
+    allow_patterns: Optional[List[str]] = None,
+    ignore_patterns: Optional[List[str]] = None,
+    backend: str = "auto",
+) -> str:
+    """Download all files from a repository using official SDK or lightweight backend."""
+    if _should_use_official_backend(backend):
+        from . import official_adapter
+        try:
+            return official_adapter.snapshot_download(
+                repo_id=repo_id,
+                repo_type=repo_type,
+                revision=revision,
+                cache_dir=cache_dir,
+                local_dir=local_dir,
+                token=token,
+                allow_patterns=allow_patterns,
+                ignore_patterns=ignore_patterns,
+            )
+        except Exception:
+            if backend == "official":
+                raise
+            print("Warning: Official ModelScope SDK failed, falling back to lightweight backend.")
+
+    return _lightweight_snapshot_download(
+        repo_id=repo_id,
+        repo_type=repo_type,
+        revision=revision,
+        cache_dir=cache_dir,
+        local_files_only=local_files_only,
+        cookies=cookies,
+        local_dir=local_dir,
+        token=token,
+        force_download=force_download,
+        allow_patterns=allow_patterns,
+        ignore_patterns=ignore_patterns,
+    )
 
 def main():
     """Main function to handle command-line arguments."""
@@ -890,6 +1039,8 @@ def main():
     parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
     parser.add_argument('--local-dir', type=str, default=None, help='Local directory to download files to')
     parser.add_argument('--token', type=str, default=None, help='Access token for private models')
+    parser.add_argument('--backend', choices=['auto', 'official', 'lightweight'], default='auto',
+                        help='ModelScope backend to use (default: auto)')
     
     args = parser.parse_args()
 
@@ -903,7 +1054,8 @@ def main():
                     revision=args.revision,
                     cache_dir=args.cache_dir,
                     local_dir=args.local_dir,
-                    token=args.token
+                    token=args.token,
+                    backend=args.backend
                 )
             else:
                 result = dataset_file_download(
@@ -912,7 +1064,8 @@ def main():
                     revision=args.revision,
                     cache_dir=args.cache_dir,
                     local_dir=args.local_dir,
-                    token=args.token
+                    token=args.token,
+                    backend=args.backend
                 )
             print(f"Successfully downloaded file to: {result}")
         else:
@@ -923,7 +1076,8 @@ def main():
                 revision=args.revision,
                 cache_dir=args.cache_dir,
                 local_dir=args.local_dir,
-                token=args.token
+                token=args.token,
+                backend=args.backend
             )
             print(f"Repository download completed. Files are in: {result}")
     except Exception as e:
