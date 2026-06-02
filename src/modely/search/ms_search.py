@@ -14,6 +14,14 @@ from .types import SearchResult
 # ModelScope uses the PUT-method dolphin API for model search
 _SEARCH_URL = "{endpoint}/api/v1/dolphin/models"
 
+# Map sort field names to dolphin API SortBy values
+_SORT_BY_MAP = {
+    "downloads": "downloads",
+    "lastModified": "last_updated",
+    "likes": "likes",
+    "created_at": "created_at",
+}
+
 
 def _to_iso(ts) -> Optional[str]:
     """Convert a Unix timestamp (int seconds or ISO string) to ISO 8601."""
@@ -35,20 +43,13 @@ def _build_search_body(
     sort: str = "downloads",
 ) -> Dict:
     """Build the JSON body for ModelScope dolphin search API."""
-    # Map our sort fields to dolphin SortBy values
-    _SORT_MAP = {
-        "downloads": "downloads",
-        "lastModified": "last_updated",
-        "likes": "likes",
-        "created_at": "created_at",
-    }
     body: Dict = {
         "PageSize": limit,
         "PageNumber": page,
         "Name": keyword or "",
         "tags": [],
         "tasks": [],
-        "SortBy": _SORT_MAP.get(sort, "downloads"),
+        "SortBy": _SORT_BY_MAP.get(sort, "downloads"),
     }
     if task:
         body["tasks"] = [task]
@@ -121,8 +122,10 @@ def search_modelscope(
     Uses the PUT-method dolphin API. Currently only supports models
     (datasets use a different, less-documented endpoint).
     """
-    if repo_type != "model":
+    if repo_type == "dataset":
+        print("Warning: ModelScope dataset search is not yet supported.", file=sys.stderr)
         return []
+
     endpoint = os.environ.get("MODELSCOPE_ENDPOINT", "https://www.modelscope.cn")
     url = _SEARCH_URL.format(endpoint=endpoint)
     body = _build_search_body(keyword, task, limit, sort=sort)
@@ -182,7 +185,7 @@ def search_modelscope(
             # Skip malformed items
             continue
 
-    # Client-side sorting (dolphin API "SortBy" parameter is undocumented)
+    # Client-side sorting as a fallback to ensure correct order
     if sort == "lastModified":
         output.sort(key=lambda r: r.last_modified or "", reverse=(direction == "desc"))
     elif sort == "likes":

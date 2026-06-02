@@ -4,6 +4,7 @@ Hugging Face and ModelScope.
 """
 
 import json
+import sys
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -111,10 +112,6 @@ def search(
         )
 
     def _fetch_ms():
-        if repo_type == "dataset":
-            import sys
-            print("Warning: ModelScope dataset search is not yet supported.", file=sys.stderr)
-            return []
         if library:
             warnings.warn("--library filter is not supported on ModelScope, ignoring.")
         if license:
@@ -186,8 +183,6 @@ def main(args) -> None:
         else:
             print(format_table(results))
     except Exception as e:
-        import sys
-
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
