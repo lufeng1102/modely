@@ -1613,7 +1613,7 @@ class TestBuildSearchBody:
         assert body["PageSize"] == 10
         assert body["PageNumber"] == 1
         assert body["Name"] == "qwen"
-        assert body["SortBy"] == "downloads"
+        assert body["SortBy"] == "Default"
         assert body["tasks"] == []
         assert body["tags"] == []
 
@@ -1623,9 +1623,11 @@ class TestBuildSearchBody:
         assert body["tasks"] == ["text-generation"]
 
     def test_with_sort(self):
+        """SortBy should always be 'Default' as dolphin API only accepts this value."""
         from modely.search.ms_search import _build_search_body
         body = _build_search_body("test", None, 10, sort="lastModified")
-        assert body["SortBy"] == "last_updated"
+        # dolphin API only supports SortBy="Default"; client-side sorting handles the rest
+        assert body["SortBy"] == "Default"
 
     def test_with_page(self):
         from modely.search.ms_search import _build_search_body

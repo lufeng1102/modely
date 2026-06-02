@@ -14,14 +14,6 @@ from .types import SearchResult
 # ModelScope uses the PUT-method dolphin API for model search
 _SEARCH_URL = "{endpoint}/api/v1/dolphin/models"
 
-# Map sort field names to dolphin API SortBy values
-_SORT_BY_MAP = {
-    "downloads": "downloads",
-    "lastModified": "last_updated",
-    "likes": "likes",
-    "created_at": "created_at",
-}
-
 
 def _to_iso(ts) -> Optional[str]:
     """Convert a Unix timestamp (int seconds or ISO string) to ISO 8601."""
@@ -43,13 +35,15 @@ def _build_search_body(
     sort: str = "downloads",
 ) -> Dict:
     """Build the JSON body for ModelScope dolphin search API."""
+    # Note: dolphin API only accepts SortBy="Default"; other values return 400.
+    # Sorting is done client-side in search_modelscope().
     body: Dict = {
         "PageSize": limit,
         "PageNumber": page,
         "Name": keyword or "",
         "tags": [],
         "tasks": [],
-        "SortBy": _SORT_BY_MAP.get(sort, "downloads"),
+        "SortBy": "Default",
     }
     if task:
         body["tasks"] = [task]
