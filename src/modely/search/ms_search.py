@@ -33,6 +33,7 @@ def _build_search_body(
     limit: int,
     page: int = 1,
     sort: str = "downloads",
+    repo_type: str = "model",
 ) -> Dict:
     """Build the JSON body for ModelScope dolphin search API."""
     # Note: dolphin API only accepts SortBy="Default"; other values return 400.
@@ -45,13 +46,15 @@ def _build_search_body(
         "tasks": [],
         "SortBy": "Default",
     }
+    if repo_type == "dataset":
+        body["ResourceType"] = "dataset"
     if task:
         body["tasks"] = [task]
     return body
 
 
-def _parse_model_item(item: Dict) -> SearchResult:
-    """Parse a ModelScope model item from dolphin API into a SearchResult."""
+def _parse_model_item(item: Dict, repo_type: str = "model") -> SearchResult:
+    """Parse a ModelScope item from dolphin API into a SearchResult."""
     # Build full repo ID from Path/Name
     path = item.get("Path", "")
     name = item.get("Name", "")
@@ -83,11 +86,12 @@ def _parse_model_item(item: Dict) -> SearchResult:
     if likes is None:
         likes = item.get("Stars", 0) or 0
 
+    url = f"https://modelscope.cn/{'datasets' if repo_type == 'dataset' else 'models'}/{repo_id}"
     result = SearchResult(
         id=repo_id,
         source="ms",
-        repo_type="model",
-        url=f"https://modelscope.cn/models/{repo_id}",
+        repo_type=repo_type,
+        url=url,
         author=item.get("Organization") or item.get("Path"),
         downloads=item.get("Downloads", 0) or 0,
         likes=likes,
@@ -113,16 +117,11 @@ def search_modelscope(
 ) -> List[SearchResult]:
     """Search ModelScope for models or datasets.
 
-    Uses the PUT-method dolphin API. Currently only supports models
-    (datasets use a different, less-documented endpoint).
+    Uses the PUT-method dolphin API for both models and datasets.
     """
-    if repo_type == "dataset":
-        print("Warning: ModelScope dataset search is not yet supported.", file=sys.stderr)
-        return []
-
     endpoint = os.environ.get("MODELSCOPE_ENDPOINT", "https://www.modelscope.cn")
     url = _SEARCH_URL.format(endpoint=endpoint)
-    body = _build_search_body(keyword, task, limit, sort=sort)
+    body = _build_search_body(keyword, task, limit, sort=sort, repo_type=repo_type)
 
     try:
         response = requests.put(
@@ -168,12 +167,7 @@ def search_modelscope(
     output = []
     for item in items:
         try:
-            if repo_type == "model":
-                result = _parse_model_item(item)
-            else:
-                # Datasets don't have a documented search API; skip for now.
-                # A dataset item uses similar fields but with different key names.
-                continue
+            result = _parse_model_item(item, repo_type=repo_type)
             output.append(result)
         except Exception:
             # Skip malformed items
