@@ -193,6 +193,8 @@ def github_clone(
 
     def _cleanup_on_failure(target):
         """Clean up target directory if clone failed."""
+        if local_dir and os.path.abspath(target) == os.path.abspath(local_dir):
+            return
         if os.path.exists(target) and os.path.isdir(target):
             try:
                 shutil.rmtree(target)
