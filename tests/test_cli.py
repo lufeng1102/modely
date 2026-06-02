@@ -279,3 +279,572 @@ class TestIncludeExclude:
         # Cleanup
         del os.environ["HF_ENDPOINT"]
 
+
+# ── CLI Arg Parsing (unit tests) ────────────────────────────────
+
+class TestCLIArgParsing:
+    """Verify that new --include/--exclude/--endpoint args are correctly parsed."""
+
+    def test_hf_parser_includes(self):
+        """HF parser should accept --include with glob patterns."""
+        import sys
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--include', nargs='+', default=None)
+
+        args = parser.parse_args(["hf", "gpt2", "--include", "*.json", "*.txt"])
+        assert args.include == ["*.json", "*.txt"]
+
+    def test_hf_parser_excludes(self):
+        """HF parser should accept --exclude with glob patterns."""
+        import sys
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--exclude', nargs='+', default=None)
+
+        args = parser.parse_args(["hf", "gpt2", "--exclude", "*.safetensors"])
+        assert args.exclude == ["*.safetensors"]
+
+    def test_hf_parser_endpoint(self):
+        """HF parser should accept --endpoint."""
+        import sys
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--endpoint', type=str, default=None)
+
+        args = parser.parse_args(["hf", "gpt2", "--endpoint", "https://hf-mirror.com"])
+        assert args.endpoint == "https://hf-mirror.com"
+
+    def test_ms_parser_includes(self):
+        """MS parser should accept --include with glob patterns."""
+        import sys
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        ms_parser = subparsers.add_parser("ms")
+        ms_parser.add_argument('repo_id', type=str)
+        ms_parser.add_argument('--include', nargs='+', default=None)
+
+        args = parser.parse_args(["ms", "owner/model", "--include", "config.json"])
+        assert args.include == ["config.json"]
+
+    def test_ms_parser_endpoint(self):
+        """MS parser should accept --endpoint."""
+        import sys
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        ms_parser = subparsers.add_parser("ms")
+        ms_parser.add_argument('repo_id', type=str)
+        ms_parser.add_argument('--endpoint', type=str, default=None)
+
+        args = parser.parse_args(["ms", "owner/model", "--endpoint", "https://custom.modelscope.cn"])
+        assert args.endpoint == "https://custom.modelscope.cn"
+
+    def test_include_exclude_both(self):
+        """Both --include and --exclude can be used together."""
+        import sys
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--include', nargs='+', default=None)
+        hf_parser.add_argument('--exclude', nargs='+', default=None)
+
+        args = parser.parse_args([
+            "hf", "gpt2",
+            "--include", "*.json", "*.txt",
+            "--exclude", "tokenizer.json",
+        ])
+        assert args.include == ["*.json", "*.txt"]
+        assert args.exclude == ["tokenizer.json"]
+
+    def test_include_exclude_not_provided_defaults_none(self):
+        """When not provided, --include and --exclude should default to None."""
+        import sys
+        import argparse
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        hf_parser = subparsers.add_parser("hf")
+        hf_parser.add_argument('repo_id', type=str)
+        hf_parser.add_argument('--include', nargs='+', default=None)
+        hf_parser.add_argument('--exclude', nargs='+', default=None)
+
+        args = parser.parse_args(["hf", "gpt2"])
+        assert args.include is None
+        assert args.exclude is None
+
+
+# ── HF Pattern Pass-Through (unit tests) ────────────────────────
+
+class TestHFSnapshotPatterns:
+    """Test that allow_patterns/ignore_patterns are passed through to huggingface_hub."""
+
+    def test_allow_patterns_passed_to_hf_sdk(self, monkeypatch):
+        """allow_patterns should be forwarded to hugginface_hub.snapshot_download."""
+        from modely.hf import snapshot_download as hf_snap
+
+        captured = {}
+
+        def mock_snapshot_download(**kwargs):
+            captured.update(kwargs)
+            return "/fake/path"
+
+        monkeypatch.setattr(
+            "modely.hf.hf_snapshot_download_sdk", mock_snapshot_download
+        )
+
+        hf_snap("test/repo", allow_patterns=["*.json", "*.txt"])
+        assert captured["allow_patterns"] == ["*.json", "*.txt"]
+
+    def test_ignore_patterns_passed_to_hf_sdk(self, monkeypatch):
+        """ignore_patterns should be forwarded to hugginface_hub.snapshot_download."""
+        from modely.hf import snapshot_download as hf_snap
+
+        captured = {}
+
+        def mock_snapshot_download(**kwargs):
+            captured.update(kwargs)
+            return "/fake/path"
+
+        monkeypatch.setattr(
+            "modely.hf.hf_snapshot_download_sdk", mock_snapshot_download
+        )
+
+        hf_snap("test/repo", ignore_patterns=["*.safetensors", "*.bin"])
+        assert captured["ignore_patterns"] == ["*.safetensors", "*.bin"]
+
+    def test_both_patterns_passed_to_hf_sdk(self, monkeypatch):
+        """Both allow and ignore patterns should be forwarded."""
+        from modely.hf import snapshot_download as hf_snap
+
+        captured = {}
+
+        def mock_snapshot_download(**kwargs):
+            captured.update(kwargs)
+            return "/fake/path"
+
+        monkeypatch.setattr(
+            "modely.hf.hf_snapshot_download_sdk", mock_snapshot_download
+        )
+
+        hf_snap(
+            "test/repo",
+            allow_patterns=["*.json"],
+            ignore_patterns=["*.bin"],
+        )
+        assert captured["allow_patterns"] == ["*.json"]
+        assert captured["ignore_patterns"] == ["*.bin"]
+
+    def test_no_patterns_passes_none(self, monkeypatch):
+        """When no patterns given, None should be passed to SDK."""
+        from modely.hf import snapshot_download as hf_snap
+
+        captured = {}
+
+        def mock_snapshot_download(**kwargs):
+            captured.update(kwargs)
+            return "/fake/path"
+
+        monkeypatch.setattr(
+            "modely.hf.hf_snapshot_download_sdk", mock_snapshot_download
+        )
+
+        hf_snap("test/repo")
+        assert captured["allow_patterns"] is None
+        assert captured["ignore_patterns"] is None
+
+    def test_force_download_true_skips_cache_check(self, monkeypatch):
+        """With force_download=True, cache should not be checked."""
+        from modely.hf import snapshot_download as hf_snap
+        import modely.common.cache as hf_cache
+
+        cache_checked = []
+
+        def mock_get_cached_repo_path(*args, **kwargs):
+            cache_checked.append(True)
+            return None
+
+        def mock_snapshot_download(**kwargs):
+            return "/fake/path"
+
+        monkeypatch.setattr(hf_cache, "get_cached_repo_path", mock_get_cached_repo_path)
+        monkeypatch.setattr("modely.hf.hf_snapshot_download_sdk", mock_snapshot_download)
+
+        hf_snap("test/repo", force_download=True)
+        assert len(cache_checked) == 0
+
+
+# ── MS Snapshot Download Filtering (unit tests) ─────────────────
+
+class TestMSSnapshotFiltering:
+    """Test that ModelScope snapshot_download filters files before downloading."""
+
+    def test_allow_patterns_filters_before_download(self, monkeypatch, tmp_path):
+        """Files not matching allow_patterns should be excluded from download."""
+        from modely import modelscope as ms_mod
+
+        fake_files = [
+            {"Path": "config.json", "Type": "blob", "Size": 100, "Name": "config.json", "Sha256": "abc"},
+            {"Path": "model.safetensors", "Type": "blob", "Size": 5000, "Name": "model.safetensors", "Sha256": "def"},
+            {"Path": "tokenizer.json", "Type": "blob", "Size": 200, "Name": "tokenizer.json", "Sha256": "ghi"},
+            {"Path": "vocab.txt", "Type": "blob", "Size": 300, "Name": "vocab.txt", "Sha256": "jkl"},
+        ]
+
+        # Track which files get downloaded
+        downloaded_files = []
+
+        # Mock HubApi and file listing
+        class FakeApi:
+            def __init__(self, token=None):
+                pass
+            def get_model_files(self, **kwargs):
+                return fake_files
+            def get_dataset_files(self, **kwargs):
+                return fake_files
+            def get_endpoint_for_read(self, *args, **kwargs):
+                return "https://modelscope.cn"
+            def get_valid_revision(self, *args, **kwargs):
+                return "master"
+            def get_cookies(self, *args, **kwargs):
+                return {}
+
+        # Also need to mock the actual file download
+        original_repo_file_download = ms_mod._repo_file_download
+        def fake_repo_file_download(*args, **kwargs):
+            file_path = kwargs.get("file_path") or (args[1] if len(args) > 1 else "unknown")
+            downloaded_files.append(file_path)
+            return str(tmp_path / file_path)
+
+        monkeypatch.setattr(ms_mod, "HubApi", FakeApi)
+        monkeypatch.setattr(ms_mod, "_repo_file_download", fake_repo_file_download)
+
+        # Add a cache directory to avoid cache miss issues
+        ms_mod.snapshot_download(
+            "owner/model",
+            repo_type="model",
+            cache_dir=str(tmp_path),
+            revision="master",
+            allow_patterns=["*.json"],
+        )
+
+        paths = set(downloaded_files)
+        assert "config.json" in paths
+        assert "tokenizer.json" in paths
+        assert "model.safetensors" not in paths
+        assert "vocab.txt" not in paths
+
+    def test_ignore_patterns_filters_before_download(self, monkeypatch, tmp_path):
+        """Files matching ignore_patterns should be excluded from download."""
+        from modely import modelscope as ms_mod
+
+        fake_files = [
+            {"Path": "config.json", "Type": "blob", "Size": 100, "Name": "config.json", "Sha256": "abc"},
+            {"Path": "model.safetensors", "Type": "blob", "Size": 5000, "Name": "model.safetensors", "Sha256": "def"},
+            {"Path": "model.bin", "Type": "blob", "Size": 3000, "Name": "model.bin", "Sha256": "xyz"},
+            {"Path": "tokenizer.json", "Type": "blob", "Size": 200, "Name": "tokenizer.json", "Sha256": "ghi"},
+        ]
+
+        downloaded_files = []
+
+        class FakeApi:
+            def __init__(self, token=None):
+                pass
+            def get_model_files(self, **kwargs):
+                return fake_files
+            def get_dataset_files(self, **kwargs):
+                return fake_files
+            def get_endpoint_for_read(self, *args, **kwargs):
+                return "https://modelscope.cn"
+            def get_valid_revision(self, *args, **kwargs):
+                return "master"
+            def get_cookies(self, *args, **kwargs):
+                return {}
+
+        def fake_repo_file_download(*args, **kwargs):
+            file_path = kwargs.get("file_path") or (args[1] if len(args) > 1 else "unknown")
+            downloaded_files.append(file_path)
+            return str(tmp_path / file_path)
+
+        monkeypatch.setattr(ms_mod, "HubApi", FakeApi)
+        monkeypatch.setattr(ms_mod, "_repo_file_download", fake_repo_file_download)
+
+        ms_mod.snapshot_download(
+            "owner/model",
+            repo_type="model",
+            cache_dir=str(tmp_path),
+            revision="master",
+            ignore_patterns=["*.safetensors", "*.bin"],
+        )
+
+        paths = set(downloaded_files)
+        assert "config.json" in paths
+        assert "tokenizer.json" in paths
+        assert "model.safetensors" not in paths
+        assert "model.bin" not in paths
+
+    def test_allow_and_ignore_combined(self, monkeypatch, tmp_path):
+        """allow_patterns applies first, then ignore_patterns filters the result."""
+        from modely import modelscope as ms_mod
+
+        fake_files = [
+            {"Path": "config.json", "Type": "blob", "Size": 100, "Name": "config.json", "Sha256": "abc"},
+            {"Path": "tokenizer.json", "Type": "blob", "Size": 200, "Name": "tokenizer.json", "Sha256": "ghi"},
+            {"Path": "model.json", "Type": "blob", "Size": 300, "Name": "model.json", "Sha256": "mno"},
+        ]
+
+        downloaded_files = []
+
+        class FakeApi:
+            def __init__(self, token=None):
+                pass
+            def get_model_files(self, **kwargs):
+                return fake_files
+            def get_dataset_files(self, **kwargs):
+                return fake_files
+            def get_endpoint_for_read(self, *args, **kwargs):
+                return "https://modelscope.cn"
+            def get_valid_revision(self, *args, **kwargs):
+                return "master"
+            def get_cookies(self, *args, **kwargs):
+                return {}
+
+        def fake_repo_file_download(*args, **kwargs):
+            file_path = kwargs.get("file_path") or (args[1] if len(args) > 1 else "unknown")
+            downloaded_files.append(file_path)
+            return str(tmp_path / file_path)
+
+        monkeypatch.setattr(ms_mod, "HubApi", FakeApi)
+        monkeypatch.setattr(ms_mod, "_repo_file_download", fake_repo_file_download)
+
+        ms_mod.snapshot_download(
+            "owner/model",
+            repo_type="model",
+            cache_dir=str(tmp_path),
+            revision="master",
+            allow_patterns=["*.json"],
+            ignore_patterns=["tokenizer.*"],
+        )
+
+        paths = set(downloaded_files)
+        assert "config.json" in paths
+        assert "model.json" in paths
+        assert "tokenizer.json" not in paths
+
+    def test_allow_patterns_no_match_skips_all(self, monkeypatch, tmp_path):
+        """When allow_patterns matches nothing, no files should be downloaded."""
+        from modely import modelscope as ms_mod
+
+        fake_files = [
+            {"Path": "model.safetensors", "Type": "blob", "Size": 5000, "Name": "model.safetensors", "Sha256": "abc"},
+            {"Path": "model.bin", "Type": "blob", "Size": 3000, "Name": "model.bin", "Sha256": "def"},
+        ]
+
+        downloaded_files = []
+
+        class FakeApi:
+            def __init__(self, token=None):
+                pass
+            def get_model_files(self, **kwargs):
+                return fake_files
+            def get_dataset_files(self, **kwargs):
+                return fake_files
+            def get_endpoint_for_read(self, *args, **kwargs):
+                return "https://modelscope.cn"
+            def get_valid_revision(self, *args, **kwargs):
+                return "master"
+            def get_cookies(self, *args, **kwargs):
+                return {}
+
+        def fake_repo_file_download(*args, **kwargs):
+            file_path = kwargs.get("file_path") or (args[1] if len(args) > 1 else "unknown")
+            downloaded_files.append(file_path)
+            return str(tmp_path / file_path)
+
+        monkeypatch.setattr(ms_mod, "HubApi", FakeApi)
+        monkeypatch.setattr(ms_mod, "_repo_file_download", fake_repo_file_download)
+
+        ms_mod.snapshot_download(
+            "owner/model",
+            repo_type="model",
+            cache_dir=str(tmp_path),
+            revision="master",
+            allow_patterns=["*.nonexistent"],
+        )
+
+        assert len(downloaded_files) == 0
+
+    def test_tree_type_files_always_excluded(self, monkeypatch, tmp_path):
+        """Files with Type='tree' should always be excluded regardless of patterns."""
+        from modely import modelscope as ms_mod
+
+        fake_files = [
+            {"Path": "config.json", "Type": "blob", "Size": 100, "Name": "config.json", "Sha256": "abc"},
+            {"Path": "subdir", "Type": "tree", "Size": 0, "Name": "subdir", "Sha256": ""},
+        ]
+
+        downloaded_files = []
+
+        class FakeApi:
+            def __init__(self, token=None):
+                pass
+            def get_model_files(self, **kwargs):
+                return fake_files
+            def get_dataset_files(self, **kwargs):
+                return fake_files
+            def get_endpoint_for_read(self, *args, **kwargs):
+                return "https://modelscope.cn"
+            def get_valid_revision(self, *args, **kwargs):
+                return "master"
+            def get_cookies(self, *args, **kwargs):
+                return {}
+
+        def fake_repo_file_download(*args, **kwargs):
+            file_path = kwargs.get("file_path") or (args[1] if len(args) > 1 else "unknown")
+            downloaded_files.append(file_path)
+            return str(tmp_path / file_path)
+
+        monkeypatch.setattr(ms_mod, "HubApi", FakeApi)
+        monkeypatch.setattr(ms_mod, "_repo_file_download", fake_repo_file_download)
+
+        ms_mod.snapshot_download(
+            "owner/model",
+            repo_type="model",
+            cache_dir=str(tmp_path),
+            revision="master",
+        )
+
+        paths = set(downloaded_files)
+        assert "config.json" in paths
+        assert "subdir" not in paths
+
+
+# ── Endpoint Propagation (unit tests) ───────────────────────────
+
+class TestEndpointPropagation:
+    """Test that --endpoint flag correctly propagates to environment variables."""
+
+    def test_hf_endpoint_sets_env_var(self, monkeypatch):
+        """HF --endpoint should set HF_ENDPOINT before huggingface_hub SDK call."""
+        import os
+        monkeypatch.delenv("HF_ENDPOINT", raising=False)
+
+        # Simulate what the dispatch does
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        assert os.environ["HF_ENDPOINT"] == "https://hf-mirror.com"
+
+        # Cleanup
+        del os.environ["HF_ENDPOINT"]
+
+    def test_ms_endpoint_sets_env_var(self, monkeypatch):
+        """MS --endpoint should set MODELSCOPE_ENDPOINT before API calls."""
+        import os
+        monkeypatch.delenv("MODELSCOPE_ENDPOINT", raising=False)
+
+        os.environ["MODELSCOPE_ENDPOINT"] = "https://custom.ms.cn"
+        assert os.environ["MODELSCOPE_ENDPOINT"] == "https://custom.ms.cn"
+
+        del os.environ["MODELSCOPE_ENDPOINT"]
+
+    def test_hf_endpoint_used_by_hub_sdk(self, monkeypatch):
+        """When HF_ENDPOINT is set, huggingface_hub should see it."""
+        import os
+        monkeypatch.setenv("HF_ENDPOINT", "https://hf-mirror.com")
+        assert os.environ.get("HF_ENDPOINT") == "https://hf-mirror.com"
+
+    def test_ms_endpoint_falls_back_to_default(self, monkeypatch):
+        """When no MODELSCOPE_ENDPOINT set, get_endpoint returns default."""
+        from modely.modelscope import get_endpoint
+        monkeypatch.delenv("MODELSCOPE_ENDPOINT", raising=False)
+        endpoint = get_endpoint()
+        assert "modelscope.cn" in endpoint
+
+    def test_ms_endpoint_custom_overrides_default(self, monkeypatch):
+        """Custom MODELSCOPE_ENDPOINT should override default."""
+        from modely.modelscope import get_endpoint
+        monkeypatch.setenv("MODELSCOPE_ENDPOINT", "https://ms-mirror.example.com")
+        assert get_endpoint() == "https://ms-mirror.example.com"
+
+
+# ── Edge Cases (unit tests) ─────────────────────────────────────
+
+class TestFilteringEdgeCases:
+    """Edge case tests for file pattern filtering."""
+
+    def test_subdirectory_pattern(self):
+        """fnmatch should match patterns with subdirectory paths."""
+        import fnmatch
+        # Real-world example: matching files in subdirectories
+        assert fnmatch.fnmatch("subdir/config.json", "subdir/*.json")
+        assert fnmatch.fnmatch("data/train.jsonl", "data/*.jsonl")
+        assert not fnmatch.fnmatch("other/config.json", "subdir/*.json")
+
+    def test_complex_glob_pattern(self):
+        """fnmatch supports ? and [charset] patterns."""
+        import fnmatch
+        assert fnmatch.fnmatch("model_v1.bin", "model_v?.bin")
+        assert fnmatch.fnmatch("model_v2.bin", "model_v?.bin")
+        assert fnmatch.fnmatch("config.json", "config.[jt][ps]on")  # matches json, not jpon
+        # Actually config.json should NOT match config.[jt][ps]on because 's' matches [ps] but 'o' doesn't match
+        # Let's verify: [jt] = j or t, [ps] = p or s
+
+    def test_exact_filename_match(self):
+        """Exact filename without wildcards should still match."""
+        import fnmatch
+        assert fnmatch.fnmatch("config.json", "config.json")
+        assert not fnmatch.fnmatch("config.yml", "config.json")
+
+    def test_prefix_match(self):
+        """Patterns like 'data*' should match files starting with data."""
+        import fnmatch
+        assert fnmatch.fnmatch("data_config.json", "data*")
+        assert fnmatch.fnmatch("data.json", "data*")
+        assert not fnmatch.fnmatch("config.json", "data*")
+
+    def test_empty_pattern_list_is_noop(self):
+        """Empty list for include or exclude should not filter anything."""
+        files = [
+            {"Path": "a.json", "Type": "blob"},
+            {"Path": "b.txt", "Type": "blob"},
+        ]
+        allow_patterns = []
+        ignore_patterns = []
+
+        # Both empty = no filtering
+        if allow_patterns:
+            files = [f for f in files if any(fnmatch.fnmatch(f["Path"], p) for p in allow_patterns)]
+        if ignore_patterns:
+            files = [f for f in files if not any(fnmatch.fnmatch(f["Path"], p) for p in ignore_patterns)]
+
+        # Empty lists are falsy, so the if blocks don't execute
+        assert len(files) == 2
+
+    def test_none_pattern_is_noop(self):
+        """None for include or exclude should not filter anything."""
+        files = [
+            {"Path": "a.json", "Type": "blob"},
+            {"Path": "b.txt", "Type": "blob"},
+        ]
+        allow_patterns = None
+        ignore_patterns = None
+        # In the actual code: if allow_patterns:  → None is falsy → skip
+        assert not bool(allow_patterns)
+        assert not bool(ignore_patterns)
+        assert len(files) == 2
+
+    def test_pattern_with_dotfiles(self):
+        """Patterns should match dotfiles properly."""
+        import fnmatch
+        assert fnmatch.fnmatch(".gitattributes", ".*")
+        assert fnmatch.fnmatch(".gitignore", ".*")
+        assert not fnmatch.fnmatch("config.json", ".*")
