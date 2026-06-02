@@ -508,7 +508,8 @@ class HubApi:
             data = response.json()
 
             # Extract files from the response
-            files = data.get('Data', {}).get('Files', []) if isinstance(data, dict) else []
+            data_dict = data.get('Data') if isinstance(data, dict) else None
+            files = data_dict.get('Files', []) if isinstance(data_dict, dict) else []
 
             # Format files to match expected structure
             repo_files = []
