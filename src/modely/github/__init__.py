@@ -104,7 +104,7 @@ def github_file_download(
 def get_default_branch(repo_id: str, token: Optional[str] = None) -> Optional[str]:
     """Get the default branch of a GitHub repository via API."""
     url = f"https://api.github.com/repos/{repo_id}"
-    headers = {}
+    headers = {"User-Agent": "modely-ai"}
     if token:
         headers["Authorization"] = f"token {token}"
     try:
