@@ -40,6 +40,9 @@ def main():
     ms_parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
     ms_parser.add_argument('--local-dir', type=str, default=None, help='Local directory to download files to')
     ms_parser.add_argument('--token', type=str, default=None, help='Access token for private models')
+    ms_parser.add_argument('--include', nargs='+', default=None, help='Glob patterns to include (e.g., "*.json" "*.safetensors")')
+    ms_parser.add_argument('--exclude', nargs='+', default=None, help='Glob patterns to exclude (e.g., "*.bin" "*.msgpack")')
+    ms_parser.add_argument('--endpoint', type=str, default=None, help='ModelScope API endpoint')
 
     # Cache management subcommand
     cache_parser = subparsers.add_parser("cache", help="Manage modely cache")
@@ -71,6 +74,9 @@ def main():
     hf_parser.add_argument('--local-dir', type=str, default=None, help='Local directory to download files to')
     hf_parser.add_argument('--token', type=str, default=None, help='Access token for private repositories')
     hf_parser.add_argument('--force-download', action='store_true', help='Force re-download even if file exists')
+    hf_parser.add_argument('--include', nargs='+', default=None, help='Glob patterns to include (e.g., "*.json" "*.safetensors")')
+    hf_parser.add_argument('--exclude', nargs='+', default=None, help='Glob patterns to exclude (e.g., "*.bin" "*.msgpack")')
+    hf_parser.add_argument('--endpoint', type=str, default=None, help='HF API endpoint (e.g., https://hf-mirror.com)')
 
     # GitHub subcommand
     github_parser = subparsers.add_parser("github", help="Download from GitHub")
@@ -148,6 +154,10 @@ def main():
 
     if args.command == "ms":
         try:
+            # Set ModelScope endpoint if provided
+            if getattr(args, 'endpoint', None):
+                os.environ['MODELSCOPE_ENDPOINT'] = args.endpoint
+
             if args.file:
                 # Download a specific file
                 if args.repo_type == 'model':
@@ -177,7 +187,9 @@ def main():
                     revision=args.revision,
                     cache_dir=args.cache_dir,
                     local_dir=args.local_dir,
-                    token=args.token
+                    token=args.token,
+                    allow_patterns=args.include,
+                    ignore_patterns=args.exclude,
                 )
                 if result is not None:
                     print(f"Repository download completed. Files are in: {result}")
@@ -186,6 +198,10 @@ def main():
             sys.exit(1)
     elif args.command == "hf":
         try:
+            # Set HF endpoint if provided
+            if getattr(args, 'endpoint', None):
+                os.environ['HF_ENDPOINT'] = args.endpoint
+
             if args.file:
                 # Download a specific file
                 result = hf_file_download(
@@ -208,6 +224,8 @@ def main():
                     cache_dir=args.cache_dir,
                     local_dir=args.local_dir,
                     token=args.token,
+                    allow_patterns=args.include,
+                    ignore_patterns=args.exclude,
                     force_download=args.force_download
                 )
                 if result is not None:

@@ -7,6 +7,7 @@ dependencies. It can download a specific file or an entire model repository.
 """
 
 import argparse
+import fnmatch
 import hashlib
 import io
 import json
@@ -769,8 +770,15 @@ def snapshot_download(
     local_dir: Optional[str] = None,
     token: Optional[str] = None,
     force_download: bool = False,
+    allow_patterns: Optional[List[str]] = None,
+    ignore_patterns: Optional[List[str]] = None,
 ) -> str:
-    """Download all files from a repository."""
+    """Download all files from a repository.
+
+    Args:
+        allow_patterns: Glob patterns to include (e.g., ["*.json"]). If set, only matching files are downloaded.
+        ignore_patterns: Glob patterns to exclude (e.g., ["*.safetensors"]).
+    """
     if repo_type not in REPO_TYPE_SUPPORT:
         raise ValueError(f'Invalid repo type: {repo_type}, only support: {REPO_TYPE_SUPPORT}')
 
@@ -827,6 +835,19 @@ def snapshot_download(
 
     # Process each file and download
     download_files = [f for f in repo_files if f.get('Type') != 'tree']
+
+    # Apply file filtering
+    if allow_patterns:
+        download_files = [
+            f for f in download_files
+            if any(fnmatch.fnmatch(f['Path'], pat) for pat in allow_patterns)
+        ]
+    if ignore_patterns:
+        download_files = [
+            f for f in download_files
+            if not any(fnmatch.fnmatch(f['Path'], pat) for pat in ignore_patterns)
+        ]
+
     with tqdm(total=len(download_files), unit="file", desc="Downloading snapshot") as pbar:
         for repo_file in download_files:
             file_path = repo_file['Path']

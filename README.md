@@ -51,6 +51,21 @@ Download from a private repository:
 modely-ai hf username/private-repo --token YOUR_HUGGINGFACE_TOKEN
 ```
 
+Download only specific files with patterns:
+```bash
+modely-ai hf gpt2 --include "config.json" "tokenizer.json"
+```
+
+Exclude large model weights:
+```bash
+modely-ai hf meta-llama/Llama-2-7b --exclude "*.safetensors" "*.bin"
+```
+
+Use a mirror endpoint (for regions where Hugging Face is slow):
+```bash
+modely-ai hf gpt2 --endpoint https://hf-mirror.com
+```
+
 #### Download from ModelScope
 
 Download an entire model repository:
@@ -347,6 +362,9 @@ Options:
 - `--local-dir DIR`: Local directory to download files to
 - `--token TOKEN`: Access token for private repositories
 - `--force-download`: Force re-download even if file exists
+- `--include PATTERN [PATTERN ...]`: Glob patterns to include (e.g., `"*.json" "*.safetensors"`)
+- `--exclude PATTERN [PATTERN ...]`: Glob patterns to exclude (e.g., `"*.bin" "*.msgpack"`)
+- `--endpoint URL`: HF API endpoint for mirrors (e.g., `https://hf-mirror.com`)
 
 ### ModelScope Commands
 
@@ -361,6 +379,9 @@ Options:
 - `--cache-dir DIR`: Cache directory for downloaded files
 - `--local-dir DIR`: Local directory to download files to
 - `--token TOKEN`: Access token for private models
+- `--include PATTERN [PATTERN ...]`: Glob patterns to include (e.g., `"*.json" "*.safetensors"`)
+- `--exclude PATTERN [PATTERN ...]`: Glob patterns to exclude (e.g., `"*.bin" "*.msgpack"`)
+- `--endpoint URL`: ModelScope API endpoint
 
 ### GitHub Commands
 
