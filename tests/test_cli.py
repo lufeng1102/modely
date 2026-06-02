@@ -1575,3 +1575,270 @@ class TestDryRunCLI:
         args = parser.parse_args(["hf", "gpt2"])
         assert args.list_files is False
         assert args.dry_run is False
+
+
+# ── P2: Coverage Gap Fillers (unit tests) ───────────────────────
+
+class TestToIso:
+    """Test the _to_iso timestamp-to-ISO converter in ms_search.py."""
+
+    def test_unix_timestamp_converts(self):
+        from modely.search.ms_search import _to_iso
+        result = _to_iso(1700000000)
+        assert result is not None
+        assert "T" in result
+        assert result.startswith("2023-")
+
+    def test_none_returns_none(self):
+        from modely.search.ms_search import _to_iso
+        assert _to_iso(None) is None
+
+    def test_iso_string_preserved(self):
+        from modely.search.ms_search import _to_iso
+        iso = "2024-06-01T12:00:00+00:00"
+        assert _to_iso(iso) == iso
+
+    def test_float_timestamp(self):
+        from modely.search.ms_search import _to_iso
+        result = _to_iso(1700000000.0)
+        assert result is not None
+
+
+class TestBuildSearchBody:
+    """Test the _build_search_body function for ModelScope dolphin API."""
+
+    def test_basic_body(self):
+        from modely.search.ms_search import _build_search_body
+        body = _build_search_body("qwen", None, 10)
+        assert body["PageSize"] == 10
+        assert body["PageNumber"] == 1
+        assert body["Name"] == "qwen"
+        assert body["SortBy"] == "downloads"
+        assert body["tasks"] == []
+        assert body["tags"] == []
+
+    def test_with_task(self):
+        from modely.search.ms_search import _build_search_body
+        body = _build_search_body("test", "text-generation", 5)
+        assert body["tasks"] == ["text-generation"]
+
+    def test_with_sort(self):
+        from modely.search.ms_search import _build_search_body
+        body = _build_search_body("test", None, 10, sort="lastModified")
+        assert body["SortBy"] == "last_updated"
+
+    def test_with_page(self):
+        from modely.search.ms_search import _build_search_body
+        body = _build_search_body("test", None, 10, page=3)
+        assert body["PageNumber"] == 3
+
+    def test_keyword_none_uses_empty(self):
+        from modely.search.ms_search import _build_search_body
+        body = _build_search_body(None, None, 10)
+        assert body["Name"] == ""
+
+
+class TestParseModelItem:
+    """Test the _parse_model_item function for MS dolphin API responses."""
+
+    def test_standard_item(self):
+        from modely.search.ms_search import _parse_model_item
+        item = {
+            "Path": "owner",
+            "Name": "model",
+            "Downloads": 1000,
+            "Stars": 50,
+            "Tasks": [{"Name": "text-generation"}],
+            "Tags": [],
+        }
+        result = _parse_model_item(item)
+        assert result.id == "owner/model"
+        assert result.source == "ms"
+        assert result.downloads == 1000
+        assert result.pipeline_tag == "text-generation"
+
+    def test_likes_fallback_to_stars(self):
+        from modely.search.ms_search import _parse_model_item
+        item = {
+            "Path": "o", "Name": "m", "Likes": None, "Stars": 42,
+            "Tasks": [], "Tags": [],
+        }
+        result = _parse_model_item(item)
+        assert result.likes == 42
+
+    def test_tasks_as_strings(self):
+        from modely.search.ms_search import _parse_model_item
+        item = {
+            "Path": "o", "Name": "m",
+            "Tasks": ["text-classification"],
+            "Tags": [],
+        }
+        result = _parse_model_item(item)
+        assert result.pipeline_tag == "text-classification"
+
+    def test_description_falls_back_to_chinese_name(self):
+        from modely.search.ms_search import _parse_model_item
+        item = {
+            "Path": "o", "Name": "m",
+            "ChineseName": "中文名",
+            "Tasks": [], "Tags": [],
+        }
+        result = _parse_model_item(item)
+        assert result.description == "中文名"
+
+    def test_organization_as_author(self):
+        from modely.search.ms_search import _parse_model_item
+        item = {
+            "Path": "p", "Name": "m",
+            "Organization": "MyOrg",
+            "Tasks": [], "Tags": [],
+        }
+        result = _parse_model_item(item)
+        assert result.author == "MyOrg"
+
+
+class TestCacheHelpers:
+    """Test cache utility functions (previously uncovered)."""
+
+    def test_format_size(self):
+        from modely.common.cache import _format_size
+        assert "B" in _format_size(500)
+        assert "KB" in _format_size(2000)
+        assert "MB" in _format_size(5_000_000)
+        assert "GB" in _format_size(2_000_000_000)
+
+    def test_get_dir_size(self, tmp_path):
+        from modely.common.cache import _get_dir_size
+        f = tmp_path / "test.txt"
+        f.write_text("hello world")
+        size = _get_dir_size(str(tmp_path))
+        assert size > 0
+
+    def test_load_config_new_file(self, tmp_path, monkeypatch):
+        from modely.common import cache as cache_mod
+        config_path = tmp_path / "config.json"
+        monkeypatch.setattr(cache_mod, "CONFIG_FILE", str(config_path))
+        config = cache_mod._load_config()
+        assert isinstance(config, dict)
+
+    def test_save_and_load_config(self, tmp_path, monkeypatch):
+        from modely.common import cache as cache_mod
+        config_path = tmp_path / "config.json"
+        monkeypatch.setattr(cache_mod, "CONFIG_FILE", str(config_path))
+        cache_mod._save_config({"cache_dir": str(tmp_path)})
+        config = cache_mod._load_config()
+        assert config["cache_dir"] == str(tmp_path)
+
+    def test_set_cache_dir(self, tmp_path, monkeypatch):
+        from modely.common import cache as cache_mod
+        config_path = tmp_path / "config.json"
+        monkeypatch.setattr(cache_mod, "CONFIG_FILE", str(config_path))
+        cache_mod.set_cache_dir(str(tmp_path / "cache"))
+        config = cache_mod._load_config()
+        assert "cache_dir" in config
+
+    def test_get_source_cache_dir(self, tmp_path, monkeypatch):
+        from modely.common import cache as cache_mod
+        cache_mod.set_cache_dir(str(tmp_path))
+        source_dir = cache_mod.get_source_cache_dir("ms")
+        assert "ms" in source_dir
+
+    def test_get_repo_type_dir(self, tmp_path, monkeypatch):
+        from modely.common import cache as cache_mod
+        cache_mod.set_cache_dir(str(tmp_path))
+        dir_path = cache_mod.get_repo_type_dir("ms", "model")
+        assert "models" in dir_path or "model" in dir_path
+
+    def test_clean_cache(self, tmp_path, monkeypatch):
+        from modely.common import cache as cache_mod
+        cache_mod.set_cache_dir(str(tmp_path))
+        # Create a fake cached file
+        repo_dir = tmp_path / "ms" / "models" / "owner--model" / "master"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "test.txt").write_text("content")
+        # Clean should work
+        cleaned = cache_mod.clean_cache(cache_dir=str(tmp_path))
+        assert cleaned >= 0
+
+
+class TestBasicCache:
+    """Test the BasicCache class in modelscope module."""
+
+    def test_exists_true(self, tmp_path):
+        from modely.modelscope import BasicCache
+        cache = BasicCache(str(tmp_path))
+        f = tmp_path / "test.json"
+        f.write_text("data")
+        assert cache.exists({"Path": "test.json"})
+
+    def test_exists_false(self, tmp_path):
+        from modely.modelscope import BasicCache
+        cache = BasicCache(str(tmp_path))
+        assert not cache.exists({"Path": "nonexistent.json"})
+
+    def test_exists_no_path_key(self, tmp_path):
+        from modely.modelscope import BasicCache
+        cache = BasicCache(str(tmp_path))
+        assert not cache.exists({"Name": "test"})
+
+    def test_put_file(self, tmp_path):
+        from modely.modelscope import BasicCache
+        cache = BasicCache(str(tmp_path))
+        src = tmp_path / "src.json"
+        src.write_text("data")
+        result = cache.put_file({"Path": "dst.json"}, str(src))
+        assert result.endswith("dst.json")
+        assert os.path.exists(result)
+
+    def test_get_root_location(self, tmp_path):
+        from modely.modelscope import BasicCache
+        cache = BasicCache(str(tmp_path))
+        assert cache.get_root_location() == str(tmp_path)
+
+    def test_get_file_by_info_returns_none(self, tmp_path):
+        from modely.modelscope import BasicCache
+        cache = BasicCache(str(tmp_path))
+        assert cache.get_file_by_info({"Path": "x"}) is None
+
+    def test_get_file_by_path_returns_none(self, tmp_path):
+        from modely.modelscope import BasicCache
+        cache = BasicCache(str(tmp_path))
+        assert cache.get_file_by_path("x") is None
+
+
+class TestCreateTempDir:
+    """Test create_temporary_directory and create_temporary_directory_and_cache."""
+
+    def test_create_temporary_directory(self, tmp_path):
+        from modely.modelscope import create_temporary_directory
+        result = create_temporary_directory("owner/model", local_dir=str(tmp_path))
+        assert os.path.exists(result)
+        assert ".tmp" in result
+
+    def test_create_temporary_directory_default_cwd(self):
+        import os
+        from modely.modelscope import create_temporary_directory
+        result = create_temporary_directory("owner/model")
+        assert os.path.exists(result)
+        # Should be under current dir or default, with .tmp
+        assert ".tmp" in result
+
+    def test_create_temporary_directory_and_cache_with_local_dir(self, tmp_path):
+        from modely.modelscope import create_temporary_directory_and_cache
+        temp_dir, cache_obj = create_temporary_directory_and_cache(
+            "owner/model", local_dir=str(tmp_path)
+        )
+        assert os.path.exists(temp_dir)
+        assert ".tmp" in temp_dir
+
+    def test_create_temporary_directory_and_cache_with_cache_dir(self, tmp_path):
+        from modely.modelscope import create_temporary_directory_and_cache
+        temp_dir, cache_obj = create_temporary_directory_and_cache(
+            "owner/model", cache_dir=str(tmp_path)
+        )
+        assert os.path.exists(temp_dir)
+
+    def test_create_temporary_directory_and_cache_without_both(self):
+        from modely.modelscope import create_temporary_directory_and_cache
+        temp_dir, cache_obj = create_temporary_directory_and_cache("owner/model")
+        assert os.path.exists(temp_dir)
