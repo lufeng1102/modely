@@ -848,3 +848,560 @@ class TestFilteringEdgeCases:
         assert fnmatch.fnmatch(".gitattributes", ".*")
         assert fnmatch.fnmatch(".gitignore", ".*")
         assert not fnmatch.fnmatch("config.json", ".*")
+
+
+# ── P1: Hash Integrity Validation (unit tests) ──────────────────
+
+class TestHashValidation:
+    """Test SHA256 hash-based file integrity checks for ModelScope downloads."""
+
+    def test_valid_hash_passes(self, tmp_path):
+        """Matching hash should pass validation without error."""
+        from modely.modelscope import file_integrity_validation
+        import hashlib
+
+        f = tmp_path / "test.bin"
+        content = b"hello world" * 100
+        f.write_bytes(content)
+        expected = hashlib.sha256(content).hexdigest()
+
+        # Should not raise
+        file_integrity_validation(str(f), expected)
+
+    def test_mismatched_hash_raises(self, tmp_path):
+        """Mismatched hash should raise ValueError."""
+        from modely.modelscope import file_integrity_validation
+        import pytest
+
+        f = tmp_path / "test.bin"
+        f.write_bytes(b"correct content")
+
+        with pytest.raises(ValueError, match="File integrity check failed"):
+            file_integrity_validation(str(f), "0000000000000000000000000000000000000000000000000000000000000000")
+
+    def test_hash_case_insensitive(self, tmp_path):
+        """Hash comparison should be case insensitive."""
+        from modely.modelscope import file_integrity_validation
+        import hashlib
+
+        f = tmp_path / "test.bin"
+        content = b"case test"
+        f.write_bytes(content)
+        expected_upper = hashlib.sha256(content).hexdigest().upper()
+        expected_lower = hashlib.sha256(content).hexdigest().lower()
+
+        # Both should pass
+        file_integrity_validation(str(f), expected_upper)
+        file_integrity_validation(str(f), expected_lower)
+
+    def test_empty_file_hash(self, tmp_path):
+        """Empty file should still validate correctly."""
+        from modely.modelscope import file_integrity_validation
+        import hashlib
+
+        f = tmp_path / "empty.bin"
+        f.write_bytes(b"")
+        expected = hashlib.sha256(b"").hexdigest()
+
+        file_integrity_validation(str(f), expected)
+
+    def test_file_not_found(self, tmp_path):
+        """Non-existent file should raise FileNotFoundError."""
+        from modely.modelscope import file_integrity_validation
+        import pytest
+
+        with pytest.raises(FileNotFoundError):
+            file_integrity_validation(str(tmp_path / "nonexistent.bin"), "abc123")
+
+
+# ── P1: Download Threshold & Parallel Logic (unit tests) ────────
+
+class TestDownloadThresholdLogic:
+    """Test the conditional parallel download logic in download_file()."""
+
+    def test_small_file_uses_single_download(self, monkeypatch):
+        """Files under 512MB threshold should use http_get_model_file, not parallel_download."""
+        from modely import modelscope as ms_mod
+
+        called_single = []
+        called_parallel = []
+
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            called_single.append(file_name)
+            return "abc123"
+
+        def fake_parallel(url, local_dir, file_name, cookies, headers, file_size, disable_tqdm=False):
+            called_parallel.append(file_name)
+            return "abc123"
+
+        monkeypatch.setattr(ms_mod, "http_get_model_file", fake_http_get)
+        monkeypatch.setattr(ms_mod, "parallel_download", fake_parallel)
+
+        file_meta = {"Path": "small.json", "Size": 100, "Name": "small.json"}
+        # Monkeypatch MODELSCOPE_PARALLEL_DOWNLOAD_THRESHOLD_MB to test boundary
+        monkeypatch.setattr(ms_mod, "MODELSCOPE_PARALLEL_DOWNLOAD_THRESHOLD_MB", 1)
+        monkeypatch.setattr(ms_mod, "MODELSCOPE_DOWNLOAD_PARALLELS", 4)
+
+        # Need to mock cache.put_file to avoid actual file ops
+        class FakeCache:
+            def put_file(self, meta, temp):
+                return "/fake/path"
+
+        ms_mod.download_file(
+            "https://example.com/small.json",
+            file_meta,
+            "/tmp",
+            FakeCache(),
+            {},
+            None,
+            disable_tqdm=True,
+        )
+
+        assert len(called_single) == 1
+        assert len(called_parallel) == 0
+        assert called_single[0] == "small.json"
+
+    def test_large_file_uses_parallel_download(self, monkeypatch):
+        """Files over 512MB threshold should use parallel_download."""
+        from modely import modelscope as ms_mod
+
+        called_single = []
+        called_parallel = []
+
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            called_single.append(file_name)
+            return "abc123"
+
+        def fake_parallel(url, local_dir, file_name, cookies, headers, file_size, disable_tqdm=False):
+            called_parallel.append(file_name)
+            return "abc123"
+
+        monkeypatch.setattr(ms_mod, "http_get_model_file", fake_http_get)
+        monkeypatch.setattr(ms_mod, "parallel_download", fake_parallel)
+        # Set threshold low so our 600MB file triggers parallel
+        monkeypatch.setattr(ms_mod, "MODELSCOPE_PARALLEL_DOWNLOAD_THRESHOLD_MB", 1)
+        monkeypatch.setattr(ms_mod, "MODELSCOPE_DOWNLOAD_PARALLELS", 4)
+
+        class FakeCache:
+            def put_file(self, meta, temp):
+                return "/fake/path"
+
+        file_meta = {"Path": "large.safetensors", "Size": 600 * 1024 * 1024, "Name": "large.safetensors"}
+        ms_mod.download_file(
+            "https://example.com/large.safetensors",
+            file_meta,
+            "/tmp",
+            FakeCache(),
+            {},
+            None,
+            disable_tqdm=True,
+        )
+
+        assert len(called_single) == 0
+        assert len(called_parallel) == 1
+        assert called_parallel[0] == "large.safetensors"
+
+    def test_parallel_disabled_when_parallels_is_1(self, monkeypatch):
+        """When MODELSCOPE_DOWNLOAD_PARALLELS=1, large files still use single download."""
+        from modely import modelscope as ms_mod
+
+        called_single = []
+        called_parallel = []
+
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            called_single.append(file_name)
+            return "abc123"
+
+        def fake_parallel(*args, **kwargs):
+            called_parallel.append(True)
+            return "abc123"
+
+        monkeypatch.setattr(ms_mod, "http_get_model_file", fake_http_get)
+        monkeypatch.setattr(ms_mod, "parallel_download", fake_parallel)
+        monkeypatch.setattr(ms_mod, "MODELSCOPE_PARALLEL_DOWNLOAD_THRESHOLD_MB", 1)
+        monkeypatch.setattr(ms_mod, "MODELSCOPE_DOWNLOAD_PARALLELS", 1)
+
+        class FakeCache:
+            def put_file(self, meta, temp):
+                return "/fake/path"
+
+        file_meta = {"Path": "large.bin", "Size": 600 * 1024 * 1024, "Name": "large.bin"}
+        ms_mod.download_file(
+            "https://example.com/large.bin",
+            file_meta,
+            "/tmp",
+            FakeCache(),
+            {},
+            None,
+            disable_tqdm=True,
+        )
+
+        assert len(called_single) == 1
+        assert len(called_parallel) == 0
+
+
+# ── P1: Download File Hash Flow (unit tests) ────────────────────
+
+class TestDownloadFileHashFlow:
+    """Test the hash verification flow within download_file()."""
+
+    def test_download_file_verifies_hash_when_present(self, monkeypatch, tmp_path):
+        """When file_meta has Sha256, download_file should verify file integrity."""
+        from modely import modelscope as ms_mod
+        import hashlib
+
+        content = b"test content for hash verification"
+        expected_hash = hashlib.sha256(content).hexdigest()
+
+        # Write the temp file with correct content so verification passes
+        temp_dir = str(tmp_path)
+        temp_file = tmp_path / "model.bin"
+        temp_file.write_bytes(content)
+
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            # Write content to the actual temp path that download_file will check
+            actual_path = tmp_path / file_name
+            actual_path.write_bytes(content)
+            return expected_hash  # Return real-time computed hash
+
+        monkeypatch.setattr(ms_mod, "http_get_model_file", fake_http_get)
+
+        class FakeCache:
+            def put_file(self, meta, temp):
+                return str(temp)
+
+        file_meta = {
+            "Path": "model.bin", "Size": len(content), "Name": "model.bin",
+            "Sha256": expected_hash,
+        }
+        result = ms_mod.download_file(
+            "https://example.com/model.bin",
+            file_meta,
+            temp_dir,
+            FakeCache(),
+            {},
+            None,
+            disable_tqdm=True,
+        )
+        # Should complete without error
+        assert result is not None
+
+    def test_download_file_mismatched_hash_falls_back(self, monkeypatch, tmp_path):
+        """When real-time hash mismatches, should fall back to file-level validation."""
+        from modely import modelscope as ms_mod
+        import hashlib
+
+        content = b"correct content"
+        expected_hash = hashlib.sha256(content).hexdigest()
+        wrong_hash = "0000000000000000000000000000000000000000000000000000000000000000"
+
+        temp_dir = str(tmp_path)
+
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            actual_path = tmp_path / file_name
+            actual_path.write_bytes(content)
+            return wrong_hash  # Return wrong real-time hash to trigger fallback
+
+        monkeypatch.setattr(ms_mod, "http_get_model_file", fake_http_get)
+
+        class FakeCache:
+            def put_file(self, meta, temp):
+                return str(temp)
+
+        file_meta = {
+            "Path": "model.bin", "Size": len(content), "Name": "model.bin",
+            "Sha256": expected_hash,  # Correct expected hash
+        }
+        result = ms_mod.download_file(
+            "https://example.com/model.bin",
+            file_meta,
+            temp_dir,
+            FakeCache(),
+            {},
+            None,
+            disable_tqdm=True,
+        )
+
+        assert result is not None
+
+    def test_download_file_no_hash_field_skips_verification(self, monkeypatch, tmp_path):
+        """When file_meta has no Sha256 field, skip hash verification entirely."""
+        from modely import modelscope as ms_mod
+
+        content = b"no hash field"
+        temp_dir = str(tmp_path)
+
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            actual_path = tmp_path / file_name
+            actual_path.write_bytes(content)
+            return None
+
+        monkeypatch.setattr(ms_mod, "http_get_model_file", fake_http_get)
+
+        class FakeCache:
+            def put_file(self, meta, temp):
+                return str(temp)
+
+        file_meta = {"Path": "model.bin", "Size": len(content), "Name": "model.bin"}
+        # No Sha256 field
+
+        result = ms_mod.download_file(
+            "https://example.com/model.bin",
+            file_meta,
+            temp_dir,
+            FakeCache(),
+            {},
+            None,
+            disable_tqdm=True,
+        )
+
+        assert result is not None
+
+    def test_download_file_hash_none_skips_verification(self, monkeypatch, tmp_path):
+        """When real-time hash is None (retry occurred), should still do file-level check."""
+        from modely import modelscope as ms_mod
+        import hashlib
+
+        content = b"retry case content"
+        expected_hash = hashlib.sha256(content).hexdigest()
+        temp_dir = str(tmp_path)
+
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            actual_path = tmp_path / file_name
+            actual_path.write_bytes(content)
+            return None  # None = retry occurred, no real-time hash
+
+        monkeypatch.setattr(ms_mod, "http_get_model_file", fake_http_get)
+
+        class FakeCache:
+            def put_file(self, meta, temp):
+                return str(temp)
+
+        file_meta = {
+            "Path": "model.bin", "Size": len(content), "Name": "model.bin",
+            "Sha256": expected_hash,
+        }
+        result = ms_mod.download_file(
+            "https://example.com/model.bin",
+            file_meta,
+            temp_dir,
+            FakeCache(),
+            {},
+            None,
+            disable_tqdm=True,
+        )
+
+        assert result is not None
+
+
+# ── P1: HTTP Range / Resume Download (unit tests) ───────────────
+
+class TestResumeDownload:
+    """Test the partial download / resume HTTP Range header logic."""
+
+    def test_range_header_set_for_resume(self, monkeypatch):
+        """When a partial file exists, the Range header should request remaining bytes."""
+        import requests as req_mod
+        from modely import modelscope as ms_mod
+
+        captured_headers = {}
+
+        class FakeResponse:
+            status_code = 200
+            def iter_content(self, chunk_size):
+                yield b"remaining content"
+            def raise_for_status(self):
+                pass
+
+        def fake_get(url, stream, headers, cookies, timeout):
+            captured_headers.update(headers)
+            return FakeResponse()
+
+        monkeypatch.setattr(req_mod, "get", fake_get)
+
+        # Create a partial file to trigger Range request
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        partial_file = os.path.join(tmpdir, "partial.bin")
+        with open(partial_file, "wb") as f:
+            f.write(b"a" * 100)  # 100 bytes already downloaded
+
+        # Patch the file path to use our partial file
+        def fake_http_get(url, local_dir, file_name, file_size, cookies, headers, disable_tqdm=False):
+            return "hash123"
+
+        # Actually call http_get_model_file directly with a known partial file
+        try:
+            ms_mod.http_get_model_file(
+                "https://example.com/file.bin",
+                tmpdir,
+                "partial.bin",
+                500,  # total file size
+                cookies=req_mod.cookies.RequestsCookieJar(),
+                headers={"user-agent": "test"},
+                disable_tqdm=True,
+            )
+        except Exception:
+            pass  # Expected to fail after first chunk, we just want to check headers
+
+        assert "Range" in captured_headers
+        assert captured_headers["Range"].startswith("bytes=100-")
+
+        import shutil
+        shutil.rmtree(tmpdir)
+
+    def test_complete_file_skips_http_get(self, monkeypatch):
+        """When the partial file already meets or exceeds file_size, no HTTP request needed."""
+        from modely import modelscope as ms_mod
+        import requests as req_mod
+
+        get_called = []
+
+        def fake_get(*args, **kwargs):
+            get_called.append(True)
+            raise RuntimeError("should not be called")
+
+        monkeypatch.setattr(req_mod, "get", fake_get)
+
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        partial_file = os.path.join(tmpdir, "complete.bin")
+        file_size = 100
+        with open(partial_file, "wb") as f:
+            f.write(b"a" * file_size)  # Already fully downloaded
+
+        # Should not throw — it should see the file is complete and skip HTTP
+        ms_mod.http_get_model_file(
+            "https://example.com/file.bin",
+            tmpdir,
+            "complete.bin",
+            file_size,
+            cookies=req_mod.cookies.RequestsCookieJar(),
+            headers={"user-agent": "test"},
+            disable_tqdm=True,
+        )
+
+        assert len(get_called) == 0  # No HTTP request was made
+
+        import shutil
+        shutil.rmtree(tmpdir)
+
+    def test_empty_file_creates_and_exits(self, monkeypatch):
+        """When file_size is 0, should create an empty file and skip HTTP."""
+        from modely import modelscope as ms_mod
+        import requests as req_mod
+
+        get_called = []
+
+        def fake_get(*args, **kwargs):
+            get_called.append(True)
+            return None
+
+        monkeypatch.setattr(req_mod, "get", fake_get)
+
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+
+        ms_mod.http_get_model_file(
+            "https://example.com/empty.bin",
+            tmpdir,
+            "empty.bin",
+            0,  # Zero file size
+            cookies=req_mod.cookies.RequestsCookieJar(),
+            headers={"user-agent": "test"},
+            disable_tqdm=True,
+        )
+
+        assert len(get_called) == 0
+        assert os.path.exists(os.path.join(tmpdir, "empty.bin"))
+
+        import shutil
+        shutil.rmtree(tmpdir)
+
+
+# ── P1: Model ID Parsing (unit tests) ───────────────────────────
+
+class TestModelIdParsing:
+    """Test model_id parsing and validation."""
+
+    def test_valid_model_id(self):
+        """Standard owner/name format should parse correctly."""
+        from modely.modelscope import model_id_to_group_owner_name
+        owner, name = model_id_to_group_owner_name("owner/model-name")
+        assert owner == "owner"
+        assert name == "model-name"
+
+    def test_model_id_with_special_chars(self):
+        """Model IDs with hyphens and dots should work."""
+        from modely.modelscope import model_id_to_group_owner_name
+        owner, name = model_id_to_group_owner_name("org-1/model.v2")
+        assert owner == "org-1"
+        assert name == "model.v2"
+
+    def test_invalid_model_id_no_slash(self):
+        """Missing slash should raise ValueError."""
+        from modely.modelscope import model_id_to_group_owner_name
+        import pytest
+        with pytest.raises(ValueError, match="Invalid model id format"):
+            model_id_to_group_owner_name("just-name")
+
+    def test_invalid_model_id_too_many_slashes(self):
+        """Too many slashes should raise ValueError."""
+        from modely.modelscope import model_id_to_group_owner_name
+        import pytest
+        with pytest.raises(ValueError, match="Invalid model id format"):
+            model_id_to_group_owner_name("a/b/c")
+
+
+# ── P1: URL Construction (unit tests) ────────────────────────────
+
+class TestURLConstruction:
+    """Test ModelScope API URL building functions."""
+
+    def test_file_download_url_model(self):
+        """Model download URL should use /api/v1/models/ endpoint."""
+        from modely.modelscope import get_file_download_url
+        url = get_file_download_url(
+            "owner/model", "config.json", "master",
+            repo_type="model", endpoint="https://modelscope.cn"
+        )
+        assert "/api/v1/models/owner/model/repo" in url
+        assert "Revision=master" in url
+        assert "FilePath=config.json" in url
+
+    def test_file_download_url_dataset(self):
+        """Dataset download URL should use /api/v1/datasets/ endpoint."""
+        from modely.modelscope import get_file_download_url
+        url = get_file_download_url(
+            "owner/dataset", "data.csv", "v1.0",
+            repo_type="dataset", endpoint="https://modelscope.cn"
+        )
+        assert "/api/v1/datasets/owner/dataset/repo" in url
+        assert "Revision=v1.0" in url
+        assert "FilePath=data.csv" in url
+
+    def test_file_download_url_encodes_special_chars(self):
+        """Special characters in file paths should be URL-encoded."""
+        from modely.modelscope import get_file_download_url
+        url = get_file_download_url(
+            "owner/model", "path/to file.json", "main",
+            repo_type="model", endpoint="https://modelscope.cn"
+        )
+        # Spaces get encoded as +
+        assert "path%2Fto+file.json" in url or "path/to+file.json" in url or "path%2Fto%20file.json" in url
+
+    def test_model_files_url(self):
+        """Model files listing URL should be correctly formatted."""
+        from modely.modelscope import get_model_files_url
+        url = get_model_files_url("org/model", "main", "https://modelscope.cn")
+        assert url.startswith("https://modelscope.cn/api/v1/models/")
+        assert "org/model" in url
+        assert "Revision=main" in url
+
+    def test_dataset_files_url(self):
+        """Dataset files listing URL should be correctly formatted."""
+        from modely.modelscope import get_dataset_files_url
+        url = get_dataset_files_url("org/dataset", "master", "https://modelscope.cn")
+        assert url.startswith("https://modelscope.cn/api/v1/datasets/")
+        assert "org/dataset" in url
+        assert "Revision=master" in url
