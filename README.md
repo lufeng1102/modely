@@ -98,6 +98,19 @@ Download with specific options:
 modely-ai ms owner/model-name --revision main --local-dir ./models
 ```
 
+Use the optional official ModelScope SDK backend:
+```bash
+# Install optional SDK support
+pip install "modely-ai[modelscope]"
+
+# Auto uses the official SDK when installed, otherwise the lightweight backend
+modely-ai ms owner/model-name --backend auto
+
+# Force official SDK or the built-in lightweight downloader
+modely-ai ms owner/model-name --backend official
+modely-ai ms owner/model-name --backend lightweight
+```
+
 #### Download from GitHub
 
 Download an entire repository:
@@ -397,6 +410,7 @@ Options:
 - `--cache-dir DIR`: Cache directory for downloaded files
 - `--local-dir DIR`: Local directory to download files to
 - `--token TOKEN`: Access token for private models
+- `--backend {auto,official,lightweight}`: ModelScope backend to use (default: auto)
 - `--include PATTERN [PATTERN ...]`: Glob patterns to include (e.g., `"*.json" "*.safetensors"`)
 - `--exclude PATTERN [PATTERN ...]`: Glob patterns to exclude (e.g., `"*.bin" "*.msgpack"`)
 - `--endpoint URL`: ModelScope API endpoint
@@ -460,6 +474,7 @@ Options:
 - requests >= 2.25.0
 - tqdm >= 4.62.0
 - huggingface-hub >= 0.20.0
+- Optional: modelscope >= 1.0.0 for `modely-ai[modelscope]` official ModelScope SDK backend
 
 ## Development
 
