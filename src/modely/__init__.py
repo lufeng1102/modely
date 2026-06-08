@@ -25,102 +25,36 @@ from .watch import (
     list_targets as watch_list_targets,
 )
 from .search import SearchResult, main as search_main
+from .auth import delete_token, save_token, whoami
+from .files import do_dry_run, format_file_size, list_repo_files, print_file_list
+from .get import download_resource
+from .info import get_repo_info, print_repo_info
+from .manifest import create_download_manifest, create_lock, install_lock
+from .sync import sync_resource
 from .common import cache
 
 
 def _format_file_size(size_bytes):
     """Format bytes into human-readable form."""
-    if size_bytes is None or size_bytes == 0:
-        return "-"
-    if size_bytes >= 1_000_000_000:
-        return f"{size_bytes / 1_000_000_000:.1f} GB"
-    if size_bytes >= 1_000_000:
-        return f"{size_bytes / 1_000_000:.1f} MB"
-    if size_bytes >= 1_000:
-        return f"{size_bytes / 1_000:.1f} KB"
-    return f"{size_bytes} B"
+    return format_file_size(size_bytes)
 
 
 def _print_file_list(files, source, repo_id):
     """Print a formatted table of repository files."""
-    if not files:
-        print(f"No files found in {repo_id}")
-        return
-
-    headers = ["Path", "Size", "Type"]
-    rows = []
-    col_widths = [len(h) for h in headers]
-
-    for f in files:
-        row = [
-            f.get("Path", f.get("path", "-")),
-            _format_file_size(f.get("Size", f.get("size", 0))),
-            f.get("Type", f.get("type", "blob")),
-        ]
-        rows.append(row)
-        for i, cell in enumerate(row):
-            col_widths[i] = max(col_widths[i], len(str(cell)))
-
-    # Truncate long paths
-    max_path = min(col_widths[0], 70)
-    separator = "  ".join("-" * w for w in col_widths)
-    header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
-
-    print(f"\n[{source.upper()}] {repo_id}\n")
-    print(header_line)
-    print(separator)
-    for row in rows:
-        path = str(row[0])
-        if len(path) > 70:
-            path = path[:67] + "..."
-        print(f"{path.ljust(col_widths[0])}  {str(row[1]).ljust(col_widths[1])}  {str(row[2]).ljust(col_widths[2])}")
-    print(f"\n{len(files)} file(s) shown.\n")
+    print_file_list(files, source, repo_id)
 
 
 def _do_dry_run(source, repo_id, repo_type, revision, allow_patterns, ignore_patterns, files):
     """Simulate what would be downloaded and print a summary."""
-    import fnmatch
-
-    blobs = [f for f in files if f.get("Type", f.get("type", "")) != "tree"]
-
-    # Apply filters
-    filtered = blobs
-    if allow_patterns:
-        filtered = [f for f in filtered
-                    if any(fnmatch.fnmatch(f.get("Path", f.get("path", "")), p) for p in allow_patterns)]
-    if ignore_patterns:
-        filtered = [f for f in filtered
-                    if not any(fnmatch.fnmatch(f.get("Path", f.get("path", "")), p) for p in ignore_patterns)]
-
-    total_size = sum(f.get("Size", f.get("size", 0)) or 0 for f in filtered)
-
-    print(f"\n[{source.upper()}] {repo_id} (dry-run)")
-    print(f"  Repository type: {repo_type}")
-    print(f"  Revision:        {revision}")
-    print(f"  Total files:     {len(blobs)}")
-    if allow_patterns:
-        print(f"  Include:         {' '.join(allow_patterns)}")
-    if ignore_patterns:
-        print(f"  Exclude:         {' '.join(ignore_patterns)}")
-    print(f"  Would download:  {len(filtered)} file(s), {_format_file_size(total_size)}")
-    print()
+    do_dry_run(source, repo_id, repo_type, revision, allow_patterns, ignore_patterns, files)
 
 
 def _list_hf_files(repo_id, repo_type, revision, token, endpoint):
     """Fetch file listing from Hugging Face Hub."""
-    from huggingface_hub import HfApi
-    api = HfApi(endpoint=endpoint, token=token)
+    from .hf import list_files
     try:
-        paths = api.list_repo_files(repo_id, repo_type=repo_type, revision=revision)
-        # Get size info for each file
-        try:
-            info_list = api.get_paths_info(repo_id, paths, repo_type=repo_type, revision=revision)
-        except Exception:
-            return [{"Path": p, "Size": 0, "Type": "blob"} for p in paths]
-        return [
-            {"Path": p, "Size": getattr(info, "size", 0) or 0, "Type": "blob"}
-            for p, info in zip(paths, info_list)
-        ]
+        files = list_files(repo_id, repo_type=repo_type, revision=revision, token=token, endpoint=endpoint)
+        return [f.to_dict() | {"Path": f.path, "Size": f.size, "Type": f.type} for f in files]
     except Exception as e:
         print(f"Warning: Could not list files from HF: {e}", file=sys.stderr)
         return []
@@ -207,6 +141,86 @@ def main():
     github_parser.add_argument('--token', type=str, default=None, help='GitHub personal access token for private repositories')
     github_parser.add_argument('--with-lfs', action='store_true', help='Enable Git LFS support for large files')
     github_parser.add_argument('--force-download', action='store_true', help='Force re-download even if file exists')
+    github_parser.add_argument('--include', nargs='+', default=None, help='Sparse checkout/include patterns')
+    github_parser.add_argument('--exclude', nargs='+', default=None, help='Glob patterns to remove after clone')
+    github_parser.add_argument('--release', type=str, default=None, help='GitHub release tag for asset downloads/listing')
+    github_parser.add_argument('--asset', type=str, default=None, help='GitHub release asset name to download')
+    github_parser.add_argument('--submodules', action='store_true', help='Initialize git submodules after clone')
+
+    # Unified info/files/download commands
+    info_parser = subparsers.add_parser("info", help="Show repository metadata for a modely URI")
+    info_parser.add_argument("resource", type=str, help="Resource URI, e.g. hf://models/gpt2")
+    info_parser.add_argument('--revision', type=str, default=None)
+    info_parser.add_argument('--token', type=str, default=None)
+    info_parser.add_argument('--endpoint', type=str, default=None)
+    info_parser.add_argument('--json', action='store_true')
+
+    files_parser = subparsers.add_parser("files", help="List repository files for a modely URI")
+    files_parser.add_argument("resource", type=str, help="Resource URI, e.g. hf://models/gpt2")
+    files_parser.add_argument('--revision', type=str, default=None)
+    files_parser.add_argument('--token', type=str, default=None)
+    files_parser.add_argument('--endpoint', type=str, default=None)
+    files_parser.add_argument('--release', type=str, default=None)
+    files_parser.add_argument('--json', action='store_true')
+
+    get_parser = subparsers.add_parser("get", help="Download by URI or auto-selected source")
+    get_parser.add_argument("resource", type=str)
+    get_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
+    get_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space', 'tool'], default='model')
+    get_parser.add_argument('--revision', type=str, default=None)
+    get_parser.add_argument('--file', type=str, default=None)
+    get_parser.add_argument('--cache-dir', type=str, default=None)
+    get_parser.add_argument('--local-dir', type=str, default=None)
+    get_parser.add_argument('--token', type=str, default=None)
+    get_parser.add_argument('--include', nargs='+', default=None)
+    get_parser.add_argument('--exclude', nargs='+', default=None)
+    get_parser.add_argument('--prefer', type=str, default='ms,hf,github')
+    get_parser.add_argument('--fallback', action='store_true')
+    get_parser.add_argument('--force-download', action='store_true')
+    get_parser.add_argument('--backend', choices=['auto', 'official', 'lightweight'], default='auto')
+    get_parser.add_argument('--with-lfs', action='store_true')
+    get_parser.add_argument('--manifest', type=str, default=None)
+    get_parser.add_argument('--checksum', action='store_true')
+
+    login_parser = subparsers.add_parser("login", help="Store a source token")
+    login_parser.add_argument('source', choices=['hf', 'ms', 'github'])
+    login_parser.add_argument('--token', required=True)
+    logout_parser = subparsers.add_parser("logout", help="Remove a stored source token")
+    logout_parser.add_argument('source', choices=['hf', 'ms', 'github'])
+    whoami_parser = subparsers.add_parser("whoami", help="Show token status/identity")
+    whoami_parser.add_argument('source', choices=['hf', 'ms', 'github'])
+    whoami_parser.add_argument('--token', default=None)
+
+    lock_parser = subparsers.add_parser("lock", help="Create a JSON lockfile for a resource")
+    lock_parser.add_argument('resource', type=str)
+    lock_parser.add_argument('--revision', type=str, default=None)
+    lock_parser.add_argument('--include', nargs='+', default=None)
+    lock_parser.add_argument('--exclude', nargs='+', default=None)
+    lock_parser.add_argument('--output', '-o', default='modely.lock')
+    lock_parser.add_argument('--token', default=None)
+
+    install_parser = subparsers.add_parser("install", help="Install from a modely lockfile")
+    install_parser.add_argument('-f', '--file', required=True)
+    install_parser.add_argument('--local-dir', default=None)
+    install_parser.add_argument('--cache-dir', default=None)
+    install_parser.add_argument('--token', default=None)
+    install_parser.add_argument('--force-download', action='store_true')
+
+    sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
+    mirror_parser = subparsers.add_parser("mirror", help="Alias for sync")
+    for p in (sync_parser, mirror_parser):
+        p.add_argument('resource', type=str)
+        p.add_argument('--local-dir', required=True)
+        p.add_argument('--revision', type=str, default=None)
+        p.add_argument('--include', nargs='+', default=None)
+        p.add_argument('--exclude', nargs='+', default=None)
+        p.add_argument('--token', default=None)
+        p.add_argument('--cache-dir', default=None)
+        p.add_argument('--manifest', default=None)
+        p.add_argument('--checksum', action='store_true')
+        p.add_argument('--force-download', action='store_true')
+        p.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
+        p.add_argument('--prefer', default='ms,hf,github')
 
     # Watch subcommand
     watch_parser = subparsers.add_parser("watch", help="Watch repositories and download updates")
@@ -383,7 +397,19 @@ def main():
             sys.exit(1)
     elif args.command == "github":
         try:
-            if args.file:
+            if getattr(args, 'asset', None):
+                from .github import github_release_asset_download
+                result = github_release_asset_download(
+                    args.repo_id,
+                    args.asset,
+                    release=args.release,
+                    cache_dir=args.cache_dir,
+                    local_dir=args.local_dir,
+                    token=args.token,
+                    force_download=args.force_download,
+                )
+                print(f"Successfully downloaded release asset to: {result}")
+            elif args.file:
                 # Download a specific file
                 result = github_file_download(
                     repo_id=args.repo_id,
@@ -404,9 +430,89 @@ def main():
                     local_dir=args.local_dir,
                     token=args.token,
                     with_lfs=args.with_lfs,
-                    force_download=args.force_download
+                    force_download=args.force_download,
+                    allow_patterns=args.include,
+                    ignore_patterns=args.exclude,
+                    submodules=args.submodules,
                 )
                 # github_clone() prints its own messages
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "info":
+        try:
+            info = get_repo_info(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint)
+            print_repo_info(info, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "files":
+        try:
+            files = list_repo_files(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint, release=args.release)
+            ref_source = args.resource.split("://", 1)[0] if "://" in args.resource else "hf"
+            print_file_list(files, ref_source, args.resource, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "get":
+        try:
+            result = download_resource(
+                args.resource,
+                source=args.source,
+                repo_type=args.repo_type,
+                revision=args.revision,
+                file=args.file,
+                cache_dir=args.cache_dir,
+                local_dir=args.local_dir,
+                token=args.token,
+                include=args.include,
+                exclude=args.exclude,
+                prefer=args.prefer,
+                fallback=args.fallback,
+                force_download=args.force_download,
+                backend=args.backend,
+                with_lfs=args.with_lfs,
+            )
+            if args.manifest:
+                create_download_manifest(args.resource if "://" in args.resource else f"hf://models/{args.resource}", result,
+                                         include=args.include, exclude=args.exclude,
+                                         checksum=args.checksum, output=args.manifest)
+            print(f"Downloaded to: {result}")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "login":
+        save_token(args.source, args.token)
+        print(f"Token saved for {args.source}")
+    elif args.command == "logout":
+        removed = delete_token(args.source)
+        print(f"Token removed for {args.source}" if removed else f"No stored token for {args.source}")
+    elif args.command == "whoami":
+        print(whoami(args.source, args.token))
+    elif args.command == "lock":
+        try:
+            manifest = create_lock(args.resource, revision=args.revision, include=args.include,
+                                   exclude=args.exclude, output=args.output, token=args.token)
+            print(f"Wrote lockfile to: {args.output} ({len(manifest.files)} file(s))")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "install":
+        try:
+            result = install_lock(args.file, local_dir=args.local_dir, cache_dir=args.cache_dir,
+                                  token=args.token, force_download=args.force_download)
+            print(f"Installed to: {result}")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command in {"sync", "mirror"}:
+        try:
+            result = sync_resource(args.resource, local_dir=args.local_dir, revision=args.revision,
+                                   include=args.include, exclude=args.exclude, token=args.token,
+                                   cache_dir=args.cache_dir, manifest=args.manifest,
+                                   checksum=args.checksum, force_download=args.force_download,
+                                   source=args.source, prefer=args.prefer)
+            print(f"Synced to: {result}")
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)

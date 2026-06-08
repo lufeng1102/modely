@@ -22,6 +22,7 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from modely.common import cache as ms_cache
+from modely.types import FileInfo, RepoInfo
 import requests
 from requests.adapters import Retry
 from tqdm.auto import tqdm
@@ -1028,6 +1029,56 @@ def snapshot_download(
         allow_patterns=allow_patterns,
         ignore_patterns=ignore_patterns,
     )
+
+def list_files(
+    repo_id: str,
+    *,
+    repo_type: str = REPO_TYPE_MODEL,
+    revision: Optional[str] = None,
+    token: Optional[str] = None,
+) -> List[FileInfo]:
+    """List files in a ModelScope repository."""
+    api = HubApi(token=token)
+    if repo_type == REPO_TYPE_DATASET:
+        raw = api.get_dataset_files(repo_id, revision=revision)
+    else:
+        raw = api.get_model_files(repo_id, revision=revision)
+    return [
+        FileInfo(
+            path=f.get("Path", f.get("path", f.get("Name", ""))),
+            size=f.get("Size", f.get("size", 0)) or 0,
+            type=f.get("Type", f.get("type", "blob")),
+            sha256=f.get("Sha256"),
+            metadata=f,
+        )
+        for f in raw
+    ]
+
+
+def get_repo_info(
+    repo_id: str,
+    *,
+    repo_type: str = REPO_TYPE_MODEL,
+    revision: Optional[str] = None,
+    token: Optional[str] = None,
+) -> RepoInfo:
+    """Return best-effort ModelScope repository metadata."""
+    endpoint = get_endpoint()
+    api = HubApi(token=token)
+    files = []
+    try:
+        files = list_files(repo_id, repo_type=repo_type, revision=revision, token=token)
+    except Exception:
+        files = []
+    return RepoInfo(
+        source="ms",
+        repo_type=repo_type,
+        repo_id=repo_id,
+        url=f"{endpoint.rstrip('/')}/{'datasets' if repo_type == REPO_TYPE_DATASET else 'models'}/{repo_id}",
+        revision=api.get_valid_revision(repo_id, revision=revision, repo_type=repo_type),
+        metadata={"file_count": len(files)},
+    )
+
 
 def main():
     """Main function to handle command-line arguments."""

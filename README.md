@@ -5,12 +5,14 @@
 ## Features
 
 - 🚀 **Unified interface**: Download from Hugging Face, ModelScope, and GitHub with a single tool
+- 🧭 **Resource URIs**: Address models, datasets, and GitHub repositories with `hf://`, `ms://`, and `github://` URIs
 - 🔍 **Model discovery**: Search models and datasets by name, task type, date, and more
+- 📋 **Metadata and file listing**: Query repository info, list files, preview downloads, and create lockfiles
 - ⚡ **Progress tracking**: Real-time download progress with tqdm
 - 🔄 **Resumable downloads**: Resume interrupted downloads automatically
-- 📁 **Flexible options**: Download entire repositories or specific files
-- 🔐 **Authentication support**: Access private models and datasets with tokens
-- 📦 **Official SDKs**: Uses `huggingface-hub` official SDK for reliable downloads
+- 📁 **Flexible options**: Download entire repositories, specific files, release assets, or filtered file sets
+- 🔐 **Authentication support**: Access private models and datasets with explicit, environment, or saved tokens
+- 📦 **Official SDKs**: Uses `huggingface-hub` official SDK and optional ModelScope official SDK support
 - 📦 **Minimal dependencies**: Only requires `requests`, `tqdm`, and `huggingface-hub`
 - 💾 **Smart caching**: Avoid duplicate downloads with unified cache system
 - 🗂️ **Cache management**: CLI commands to view, list, and clean cache
@@ -27,7 +29,7 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`), searching (`search`), monitoring (`watch`), and cache management (`cache`).
+modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`), querying (`info`, `files`), searching (`search`), locking/syncing (`lock`, `install`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), monitoring (`watch`), and cache management (`cache`).
 
 #### Download from Hugging Face
 
@@ -138,6 +140,56 @@ Download from a private repository:
 modely-ai github owner/private-repo --token YOUR_GITHUB_TOKEN
 ```
 
+Download only selected paths with sparse checkout or remove excluded files after clone:
+```bash
+modely-ai github owner/repo --include "configs/*" README.md
+modely-ai github owner/repo --exclude "*.bin" "*.safetensors"
+```
+
+Download a GitHub release asset:
+```bash
+modely-ai github owner/repo --release v1.0.0 --asset model.tar.gz
+```
+
+#### Unified Query, Download, Lock, and Sync
+
+Use modely resource URIs to address repositories across platforms:
+
+```bash
+# Repository metadata
+modely-ai info hf://models/gpt2
+modely-ai info ms://models/AI-ModelScope/gpt2
+modely-ai info github://owner/repo --json
+
+# File listing
+modely-ai files hf://models/gpt2
+modely-ai files ms://datasets/owner/dataset --revision master
+modely-ai files github://owner/repo --revision main
+modely-ai files github://owner/repo --release v1.0.0
+
+# Unified download with optional fallback preference
+modely-ai get hf://models/gpt2 --file config.json
+modely-ai get Qwen/Qwen2.5-7B --source auto --prefer ms,hf --fallback
+modely-ai get github://owner/repo --include "examples/*"
+
+# Store tokens for private downloads/queries
+modely-ai login hf --token YOUR_HF_TOKEN
+modely-ai login ms --token YOUR_MODELSCOPE_TOKEN
+modely-ai login github --token YOUR_GITHUB_TOKEN
+modely-ai whoami hf
+modely-ai logout github
+
+# Reproducible local installs
+modely-ai lock hf://models/gpt2 --include "*.json" --output modely.lock
+modely-ai install -f modely.lock --local-dir ./models/gpt2
+
+# Download-only local sync/mirror (no upload)
+modely-ai sync hf://models/gpt2 --local-dir ./mirror/gpt2 --include "*.json"
+modely-ai mirror ms://models/AI-ModelScope/gpt2 --local-dir ./mirror/ms-gpt2
+```
+
+Token resolution order is: explicit `--token`, environment variables (`HF_TOKEN`, `HUGGINGFACE_TOKEN`, `MODELSCOPE_TOKEN`, `GITHUB_TOKEN`), then tokens saved in `~/.modely/config.json`.
+
 #### Search Models and Datasets
 
 Search for models, datasets, and AI/ML repositories across Hugging Face, ModelScope, and GitHub with a unified interface:
@@ -245,8 +297,20 @@ ModelScope dataset file listing may not be available for every repository throug
 You can also use modely-ai directly in your Python code:
 
 ```python
-from modely import hf_snapshot_download, model_file_download, github_snapshot_download, github_file_download
+from modely import (
+    hf_file_download,
+    hf_snapshot_download,
+    modelscope_snapshot_download,
+    github_file_download,
+    github_snapshot_download,
+)
+from modely.files import list_repo_files
+from modely.get import download_resource
+from modely.info import get_repo_info
+from modely.manifest import create_lock, install_lock
 from modely.search import search
+from modely.sync import sync_resource
+from modely.uri import parse_modely_uri
 
 # Search for models
 results = search("gpt2", source="hf", repo_type="model", task="text-generation", limit=5)
@@ -286,11 +350,24 @@ file_path = github_file_download(
     filename="README.md",
     revision="main"
 )
+
+# Use unified resource URIs
+ref = parse_modely_uri("hf://models/gpt2?revision=main&file=config.json")
+info = get_repo_info("hf://models/gpt2")
+files = list_repo_files("github://owner/repo", revision="main")
+path = download_resource("hf://models/gpt2", file="config.json")
+
+# Create and install reproducible lockfiles
+lock = create_lock("hf://models/gpt2", include=["*.json"], output="modely.lock")
+installed_path = install_lock("modely.lock", local_dir="./models/gpt2")
+
+# Mirror/sync downloads to a local directory
+mirror_path = sync_resource("ms://models/AI-ModelScope/gpt2", local_dir="./mirror/ms-gpt2")
 ```
 
 ## Cache Management
 
-modely-ai includes a unified cache system to avoid duplicate downloads. Files are organized by source (Hugging Face / ModelScope), repository type, repository ID, and revision.
+modely-ai includes a unified cache system to avoid duplicate downloads. Files are organized by source (Hugging Face / ModelScope / GitHub), repository type, repository ID, and revision.
 
 ### Cache Directory Configuration
 
@@ -431,6 +508,28 @@ Options:
 - `--token TOKEN`: GitHub personal access token for private repositories
 - `--with-lfs`: Enable Git LFS support for large files
 - `--force-download`: Force re-download even if file exists
+- `--include PATTERN [PATTERN ...]`: Sparse checkout/include patterns for repository clones
+- `--exclude PATTERN [PATTERN ...]`: Remove matching files after clone
+- `--release TAG`: Release tag for asset operations
+- `--asset NAME`: Release asset name to download
+- `--submodules`: Initialize git submodules after clone
+
+### Unified Aggregation Commands
+
+```bash
+modely-ai info <URI> [--json]
+modely-ai files <URI> [--json]
+modely-ai get <URI-or-repo> [OPTIONS]
+modely-ai login <hf|ms|github> --token TOKEN
+modely-ai logout <hf|ms|github>
+modely-ai whoami <hf|ms|github>
+modely-ai lock <URI> --output modely.lock
+modely-ai install -f modely.lock
+modely-ai sync <URI> --local-dir DIR
+modely-ai mirror <URI> --local-dir DIR
+```
+
+Supported URI forms include `hf://models/<repo>`, `hf://datasets/<repo>`, `ms://models/<repo>`, `ms://datasets/<repo>`, and `github://owner/repo`. `get`, `sync`, and `mirror` support `--include`, `--exclude`, `--revision`, `--cache-dir`, `--local-dir`, `--token`, and manifest/checksum options where applicable. `get` also supports `--source auto`, `--prefer ms,hf,github`, and `--fallback`.
 
 ### Watch Commands
 
