@@ -85,6 +85,7 @@ def snapshot_download(
     allow_patterns: Optional[List] = None,
     ignore_patterns: Optional[List] = None,
     force_download: bool = False,
+    max_workers: Optional[int] = None,
 ) -> str:
     """
     Download all files from a Hugging Face repository using huggingface_hub SDK.
@@ -123,7 +124,7 @@ def snapshot_download(
     hf_repo_type = repo_type_map.get(repo_type, repo_type)
 
     try:
-        repo_path = hf_snapshot_download_sdk(
+        kwargs = dict(
             repo_id=repo_id,
             repo_type=hf_repo_type,
             revision=revision,
@@ -134,6 +135,9 @@ def snapshot_download(
             ignore_patterns=ignore_patterns,
             force_download=force_download,
         )
+        if max_workers is not None:
+            kwargs["max_workers"] = max_workers
+        repo_path = hf_snapshot_download_sdk(**kwargs)
         return repo_path
     except (RepositoryNotFoundError, RevisionNotFoundError) as e:
         raise Exception(f"Repository or revision not found: {e}")

@@ -8,7 +8,7 @@ from .manifest import create_download_manifest
 
 def sync_resource(resource: str, *, local_dir: str, revision=None, include=None, exclude=None,
                   token=None, cache_dir=None, manifest=None, checksum=False, force_download=False,
-                  source="auto", prefer="ms,hf,github"):
+                  source="auto", prefer="ms,hf,github", profile=None):
     """Ensure a remote resource is materialized locally. No upload is performed."""
     path = download_resource(
         resource,
@@ -22,6 +22,7 @@ def sync_resource(resource: str, *, local_dir: str, revision=None, include=None,
         prefer=prefer,
         fallback=True,
         force_download=force_download,
+        profile=profile,
     )
     if manifest:
         create_download_manifest(resource if "://" in resource else f"hf://models/{resource}", path,

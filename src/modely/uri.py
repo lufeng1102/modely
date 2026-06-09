@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .types import RepoRef
 
-_SUPPORTED_SOURCES = {"hf", "ms", "github"}
+_SUPPORTED_SOURCES = {"hf", "ms", "github", "kaggle"}
 _REPO_TYPE_ALIASES = {
     "model": "model",
     "models": "model",
@@ -18,11 +18,14 @@ _REPO_TYPE_ALIASES = {
     "tools": "tool",
     "repo": "tool",
     "repos": "tool",
+    "competition": "competition",
+    "competitions": "competition",
 }
 _DEFAULT_REPO_TYPE = {
     "hf": "model",
     "ms": "model",
     "github": "tool",
+    "kaggle": "dataset",
 }
 
 
@@ -30,6 +33,8 @@ def normalize_source(source: str) -> str:
     """Normalize a source name."""
     if source == "modelscope":
         source = "ms"
+    if source == "kg":
+        source = "kaggle"
     if source not in _SUPPORTED_SOURCES:
         raise ValueError(f"Unsupported source: {source}")
     return source
@@ -72,6 +77,12 @@ def parse_modely_uri(value: str, *, source: str | None = None, repo_type: str | 
                 repo_id = "/".join(parts[:2])
                 extra = parts[2:]
             rtype = "tool"
+        elif src == "kaggle":
+            if not parsed.netloc:
+                raise ValueError(f"Missing repo type in URI: {value}")
+            rtype = normalize_repo_type(parsed.netloc, src)
+            repo_id = "/".join(parts[:2]) if rtype == "dataset" else "/".join(parts[:1])
+            extra = parts[2:] if rtype == "dataset" else parts[1:]
         else:
             if not parsed.netloc:
                 raise ValueError(f"Missing repo type in URI: {value}")
@@ -83,7 +94,7 @@ def parse_modely_uri(value: str, *, source: str | None = None, repo_type: str | 
         file_path = _first(query.get("file")) or _first(query.get("path"))
         if extra and not file_path:
             file_path = "/".join(extra)
-        if not repo_id or "/" not in repo_id and src != "hf":
+        if not repo_id or ((src in {"ms", "github"} or (src == "kaggle" and rtype == "dataset")) and "/" not in repo_id):
             raise ValueError(f"Invalid repository id in URI: {value}")
         return RepoRef(source=src, repo_type=rtype, repo_id=repo_id, revision=revision, path=file_path)
 
@@ -99,6 +110,8 @@ def format_modely_uri(ref: RepoRef) -> str:
     """Format a RepoRef as a modely URI."""
     if ref.source == "github":
         uri = f"github://{ref.repo_id}"
+    elif ref.source == "kaggle":
+        uri = f"kaggle://{ref.repo_type}s/{ref.repo_id}"
     else:
         uri = f"{ref.source}://{ref.repo_type}s/{ref.repo_id}"
     query = []

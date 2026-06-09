@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .auth import get_token
+from .profiles import resolve_download_profile
 from .types import RepoRef
 from .uri import normalize_repo_type, normalize_source, parse_modely_uri
 
@@ -26,8 +27,15 @@ def download_resource(
     force_download: bool = False,
     backend: str = "auto",
     with_lfs: bool = False,
+    profile: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    max_workers: Optional[int] = None,
+    timeout: Optional[float] = None,
+    retries: Optional[int] = None,
 ):
     """Download a resource by URI, explicit source, or auto/fallback source order."""
+    include, exclude = resolve_download_profile(profile, include, exclude)
+
     if "://" in resource:
         ref = parse_modely_uri(resource)
         if revision:
@@ -36,13 +44,21 @@ def download_resource(
             ref.path = file
         return _download_ref(ref, cache_dir=cache_dir, local_dir=local_dir, token=token,
                              include=include, exclude=exclude, force_download=force_download,
-                             backend=backend, with_lfs=with_lfs)
+                             backend=backend, with_lfs=with_lfs, endpoint=endpoint,
+                             max_workers=max_workers, timeout=timeout, retries=retries)
 
     if source != "auto":
         ref = RepoRef(normalize_source(source), normalize_repo_type(repo_type, source), resource, revision, file)
         return _download_ref(ref, cache_dir=cache_dir, local_dir=local_dir, token=token,
                              include=include, exclude=exclude, force_download=force_download,
-                             backend=backend, with_lfs=with_lfs)
+                             backend=backend, with_lfs=with_lfs, endpoint=endpoint,
+                             max_workers=max_workers, timeout=timeout, retries=retries)
+
+    if source == "auto" and prefer == "fastest":
+        from .sources import rank_sources
+        ranked = [r.source for r in rank_sources(resource, candidates=["hf", "hf-mirror", "ms", "github"], timeout=timeout or 5) if r.ok]
+        seen = set()
+        prefer = ",".join(s for s in ranked if not (s in seen or seen.add(s))) or "ms,hf,github"
 
     errors = []
     for src in [s.strip() for s in prefer.split(",") if s.strip()]:
@@ -50,7 +66,8 @@ def download_resource(
             ref = RepoRef(normalize_source(src), normalize_repo_type(repo_type, src), resource, revision, file)
             return _download_ref(ref, cache_dir=cache_dir, local_dir=local_dir, token=token,
                                  include=include, exclude=exclude, force_download=force_download,
-                                 backend=backend, with_lfs=with_lfs)
+                                 backend=backend, with_lfs=with_lfs, endpoint=endpoint,
+                                 max_workers=max_workers, timeout=timeout, retries=retries)
         except Exception as exc:
             errors.append(f"{src}: {exc}")
             if not fallback:
@@ -59,7 +76,8 @@ def download_resource(
 
 
 def _download_ref(ref: RepoRef, *, cache_dir=None, local_dir=None, token=None, include=None, exclude=None,
-                  force_download=False, backend="auto", with_lfs=False):
+                  force_download=False, backend="auto", with_lfs=False, endpoint=None,
+                  max_workers=None, timeout=None, retries=None):
     token = get_token(ref.source, token)
     if ref.source == "hf":
         from .hf import hf_file_download, snapshot_download
@@ -70,7 +88,7 @@ def _download_ref(ref: RepoRef, *, cache_dir=None, local_dir=None, token=None, i
         return snapshot_download(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision or "main",
                                  cache_dir=cache_dir, local_dir=local_dir, token=token,
                                  allow_patterns=include, ignore_patterns=exclude,
-                                 force_download=force_download)
+                                 force_download=force_download, max_workers=max_workers)
     if ref.source == "ms":
         from .modelscope import dataset_file_download, model_file_download, snapshot_download
         if ref.path:
@@ -90,4 +108,8 @@ def _download_ref(ref: RepoRef, *, cache_dir=None, local_dir=None, token=None, i
         return github_clone(ref.repo_id, revision=ref.revision or "main", cache_dir=cache_dir, local_dir=local_dir,
                             token=token, with_lfs=with_lfs, force_download=force_download,
                             allow_patterns=include, ignore_patterns=exclude)
+    if ref.source == "kaggle":
+        from .kaggle import kaggle_download
+        return kaggle_download(ref.repo_id, repo_type=ref.repo_type, file=ref.path,
+                               local_dir=local_dir, cache_dir=cache_dir, force_download=force_download)
     raise ValueError(f"Unsupported source: {ref.source}")

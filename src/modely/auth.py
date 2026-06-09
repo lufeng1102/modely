@@ -27,7 +27,7 @@ def get_token(source: str, explicit_token: Optional[str] = None) -> Optional[str
     return (_load_tokens()).get(source)
 
 
-def save_token(source: str, token: str) -> None:
+def save_token(source: str, token: str, *, ensure_private: bool = True) -> None:
     """Persist a source token in ~/.modely/config.json."""
     source = normalize_source(source)
     config = cache._load_config()
@@ -35,6 +35,8 @@ def save_token(source: str, token: str) -> None:
     tokens[source] = token
     config["tokens"] = tokens
     cache._save_config(config)
+    if ensure_private:
+        _ensure_private_config()
 
 
 def delete_token(source: str) -> bool:
@@ -55,6 +57,14 @@ def has_token(source: str) -> bool:
 
 def _load_tokens():
     return cache._load_config().get("tokens") or {}
+
+
+def _ensure_private_config() -> None:
+    """Best-effort chmod 0600 for the config file that stores tokens."""
+    try:
+        os.chmod(cache.CONFIG_FILE, 0o600)
+    except OSError:
+        pass
 
 
 def whoami(source: str, token: Optional[str] = None) -> str:
