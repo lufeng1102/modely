@@ -4,14 +4,16 @@
 
 ## Features
 
-- 🚀 **Unified interface**: Download from Hugging Face, ModelScope, and GitHub with a single tool
-- 🧭 **Resource URIs**: Address models, datasets, and GitHub repositories with `hf://`, `ms://`, and `github://` URIs
-- 🔍 **Model discovery**: Search models and datasets by name, task type, date, and more
-- 📋 **Metadata and file listing**: Query repository info, list files, preview downloads, and create lockfiles
+- 🚀 **Unified interface**: Download from Hugging Face, ModelScope, GitHub, and experimental Kaggle URI support with a single tool
+- 🧭 **Resource URIs**: Address models, datasets, GitHub repositories, and Kaggle assets with `hf://`, `ms://`, `github://`, and `kaggle://` URIs
+- 🔍 **Model discovery**: Search models, datasets, and AI/ML repositories by name, task type, date, and more
+- 📋 **Metadata, planning, and file analysis**: Query repository info, list files, summarize asset categories, preview downloads, and create lockfiles
+- 🧩 **Cross-platform analysis and comparison**: Parse cards, analyze model assets, compare repositories, and group search results across sources
+- 🌐 **Source probing and fallback**: Probe Hugging Face, HF mirrors, ModelScope, GitHub, and Kaggle endpoints before downloading
 - ⚡ **Progress tracking**: Real-time download progress with tqdm
 - 🔄 **Resumable downloads**: Resume interrupted downloads automatically
 - 📁 **Flexible options**: Download entire repositories, specific files, release assets, or filtered file sets
-- 🔐 **Authentication support**: Access private models and datasets with explicit, environment, or saved tokens
+- 🔐 **Authentication support**: Access private models and datasets with explicit, stdin, environment, or saved tokens
 - 📦 **Official SDKs**: Uses `huggingface-hub` official SDK and optional ModelScope official SDK support
 - 📦 **Minimal dependencies**: Only requires `requests`, `tqdm`, and `huggingface-hub`
 - 💾 **Smart caching**: Avoid duplicate downloads with unified cache system
@@ -29,7 +31,7 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`), querying (`info`, `files`), searching (`search`), locking/syncing (`lock`, `install`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), monitoring (`watch`), and cache management (`cache`).
+modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`), querying (`info`, `files`, `card`, `analyze`, `compare`), inspecting backend support (`capabilities`), searching (`search`), locking/syncing (`lock`, `install`, `validate-lock`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
 
 #### Download from Hugging Face
 
@@ -156,24 +158,40 @@ modely-ai github owner/repo --release v1.0.0 --asset model.tar.gz
 Use modely resource URIs to address repositories across platforms:
 
 ```bash
-# Repository metadata
+# Repository metadata, cards, and analysis
 modely-ai info hf://models/gpt2
 modely-ai info ms://models/AI-ModelScope/gpt2
 modely-ai info github://owner/repo --json
+modely-ai card hf://models/gpt2 --json
+modely-ai analyze hf://models/gpt2 --profile minimal
+modely-ai analyze hf://models/gpt2 --deep --json
+modely-ai compare hf://models/gpt2 ms://models/AI-ModelScope/gpt2
+modely-ai compare hf://models/gpt2 ms://models/AI-ModelScope/gpt2 --files --card --formats --deep
 
-# File listing
-modely-ai files hf://models/gpt2
-modely-ai files ms://datasets/owner/dataset --revision master
-modely-ai files github://owner/repo --revision main
-modely-ai files github://owner/repo --release v1.0.0
+# File listing and planning
+modely-ai files hf://models/gpt2 --include "*.json" --summary
+modely-ai files github://owner/repo --release v1.0.0 --json
+modely-ai plan hf://models/gpt2 --profile minimal
+modely-ai plan Qwen/Qwen2.5-7B --source hf --profile no-weights --json
 
 # Unified download with optional fallback preference
 modely-ai get hf://models/gpt2 --file config.json
 modely-ai get Qwen/Qwen2.5-7B --source auto --prefer ms,hf --fallback
+modely-ai get Qwen/Qwen2.5-7B --source auto --prefer fastest --fallback --profile inference
+modely-ai get hf://models/gpt2 --file config.json --retries 5 --timeout 30 --no-resume
 modely-ai get github://owner/repo --include "examples/*"
+
+# Source endpoint discovery/probing and declared backend capabilities
+modely-ai capabilities
+modely-ai capabilities --source hf --json
+modely-ai sources list
+modely-ai sources list --source hf
+modely-ai sources probe hf://models/gpt2 --source all
+modely-ai sources probe kaggle://datasets/owner/dataset --source kaggle
 
 # Store tokens for private downloads/queries
 modely-ai login hf --token YOUR_HF_TOKEN
+printf '%s' "$HF_TOKEN" | modely-ai login hf --stdin
 modely-ai login ms --token YOUR_MODELSCOPE_TOKEN
 modely-ai login github --token YOUR_GITHUB_TOKEN
 modely-ai whoami hf
@@ -182,13 +200,23 @@ modely-ai logout github
 # Reproducible local installs
 modely-ai lock hf://models/gpt2 --include "*.json" --output modely.lock
 modely-ai install -f modely.lock --local-dir ./models/gpt2
+modely-ai validate-lock -f modely.lock --local-dir ./models/gpt2 --checksum
 
 # Download-only local sync/mirror (no upload)
 modely-ai sync hf://models/gpt2 --local-dir ./mirror/gpt2 --include "*.json"
 modely-ai mirror ms://models/AI-ModelScope/gpt2 --local-dir ./mirror/ms-gpt2
 ```
 
-Token resolution order is: explicit `--token`, environment variables (`HF_TOKEN`, `HUGGINGFACE_TOKEN`, `MODELSCOPE_TOKEN`, `GITHUB_TOKEN`), then tokens saved in `~/.modely/config.json`.
+Token resolution order is: explicit `--token`, environment variables (`HF_TOKEN`, `HUGGINGFACE_TOKEN`, `MODELSCOPE_TOKEN`, `GITHUB_TOKEN`), then tokens saved in `~/.modely/config.json`. Use `login --stdin` to avoid putting tokens in shell history; saved token config files are chmodded to `0600` on supported systems.
+
+Download profiles provide common file-selection presets across `files`, `plan`, `get`, `sync`, and `mirror`:
+
+- `full`: no additional filtering
+- `minimal`: README/model card, config, and tokenizer files
+- `no-weights`: exclude common large weight formats such as `.bin`, `.safetensors`, `.gguf`, `.onnx`, `.ckpt`
+- `inference`: config/tokenizer plus common inference weight formats such as `.safetensors` and `.gguf`
+
+`plan` is a download preview: it lists the selected files, estimated total size, cache hits/misses, and file categories without downloading. `sources probe` performs lightweight endpoint checks for availability/latency; `--prefer fastest` uses these probes to rank candidate sources, not to benchmark full download throughput.
 
 #### Search Models and Datasets
 
@@ -228,11 +256,18 @@ modely-ai search qwen --sort lastModified --direction desc
 # JSON output for scripting
 modely-ai search gpt2 --source hf --json | jq '.[].id'
 
-# Search all three platforms simultaneously
+# Search all supported platforms simultaneously
 modely-ai search qwen --source all
+
+# Search Kaggle datasets when Kaggle credentials/CLI are configured
+modely-ai search mnist --source kaggle --repo-type dataset
+
+# Group potential cross-platform matches by normalized repository name
+modely-ai search qwen --source all --dedupe
+modely-ai search qwen --source hf --compare
 ```
 
-Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. The keyword argument is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads.
+Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. The keyword argument is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads. Kaggle search is best-effort and requires the Kaggle package/credentials to be configured in the local environment.
 
 
 
@@ -304,18 +339,25 @@ from modely import (
     github_file_download,
     github_snapshot_download,
 )
-from modely.files import list_repo_files
+from modely.card import get_card
+from modely.compare import compare_resources
+from modely.files import list_repo_files, summarize_files
 from modely.get import download_resource
 from modely.info import get_repo_info
-from modely.manifest import create_lock, install_lock
+from modely.manifest import create_lock, install_lock, validate_lock
+from modely.plan import create_download_plan
+from modely.profiles import resolve_download_profile
 from modely.search import search
+from modely.search.dedupe import dedupe_results
+from modely.sources import list_source_profiles, rank_sources
 from modely.sync import sync_resource
-from modely.uri import parse_modely_uri
+from modely.uri import format_modely_uri, parse_modely_uri
 
 # Search for models
 results = search("gpt2", source="hf", repo_type="model", task="text-generation", limit=5)
 for r in results:
     print(f"{r.id}: {r.downloads} downloads, {r.url}")
+groups = dedupe_results(results)
 
 # Download an entire Hugging Face repository
 model_path = hf_snapshot_download(
@@ -353,13 +395,24 @@ file_path = github_file_download(
 
 # Use unified resource URIs
 ref = parse_modely_uri("hf://models/gpt2?revision=main&file=config.json")
+assert format_modely_uri(ref) == "hf://models/gpt2?revision=main&file=config.json"
 info = get_repo_info("hf://models/gpt2")
 files = list_repo_files("github://owner/repo", revision="main")
+summary = summarize_files(files, include=["*.json"])
+card = get_card("hf://models/gpt2")
+plan = create_download_plan("hf://models/gpt2", profile="minimal")
+comparison = compare_resources("hf://models/gpt2", "ms://models/AI-ModelScope/gpt2", include_files=True, include_formats=True, deep=True)
 path = download_resource("hf://models/gpt2", file="config.json")
 
-# Create and install reproducible lockfiles
+# Resolve profile presets and probe sources
+include, exclude = resolve_download_profile("no-weights", include=None, exclude=None)
+profiles = list_source_profiles()
+probe_results = rank_sources("hf://models/gpt2", candidates=["hf", "hf-mirror"])
+
+# Create, install, and validate reproducible lockfiles
 lock = create_lock("hf://models/gpt2", include=["*.json"], output="modely.lock")
 installed_path = install_lock("modely.lock", local_dir="./models/gpt2")
+validation = validate_lock("modely.lock", local_dir="./models/gpt2", checksum=True)
 
 # Mirror/sync downloads to a local directory
 mirror_path = sync_resource("ms://models/AI-ModelScope/gpt2", local_dir="./mirror/ms-gpt2")
@@ -367,7 +420,7 @@ mirror_path = sync_resource("ms://models/AI-ModelScope/gpt2", local_dir="./mirro
 
 ## Cache Management
 
-modely-ai includes a unified cache system to avoid duplicate downloads. Files are organized by source (Hugging Face / ModelScope / GitHub), repository type, repository ID, and revision.
+modely-ai includes a unified cache system to avoid duplicate downloads. Files are organized by source (Hugging Face / ModelScope / GitHub / Kaggle), repository type, repository ID, and revision.
 
 ### Cache Directory Configuration
 
@@ -518,18 +571,39 @@ Options:
 
 ```bash
 modely-ai info <URI> [--json]
-modely-ai files <URI> [--json]
+modely-ai card <URI> [--json]
+modely-ai analyze <URI> [--profile PROFILE] [--deep] [--json]
+modely-ai compare <URI> <URI> [--files] [--card] [--formats] [--deep] [--json]
+modely-ai files <URI> [--include PATTERN ...] [--exclude PATTERN ...] [--profile PROFILE] [--summary] [--json]
+modely-ai plan <URI-or-repo> [--source SOURCE] [--profile PROFILE] [--json]
 modely-ai get <URI-or-repo> [OPTIONS]
-modely-ai login <hf|ms|github> --token TOKEN
+modely-ai capabilities [--source SOURCE | --backend BACKEND] [--json]
+modely-ai sources <list|probe> [OPTIONS]
+modely-ai login <hf|ms|github> (--token TOKEN | --stdin)
 modely-ai logout <hf|ms|github>
 modely-ai whoami <hf|ms|github>
 modely-ai lock <URI> --output modely.lock
+modely-ai validate-lock -f modely.lock [--local-dir DIR] [--checksum] [--json]
 modely-ai install -f modely.lock
 modely-ai sync <URI> --local-dir DIR
 modely-ai mirror <URI> --local-dir DIR
 ```
 
-Supported URI forms include `hf://models/<repo>`, `hf://datasets/<repo>`, `ms://models/<repo>`, `ms://datasets/<repo>`, and `github://owner/repo`. `get`, `sync`, and `mirror` support `--include`, `--exclude`, `--revision`, `--cache-dir`, `--local-dir`, `--token`, and manifest/checksum options where applicable. `get` also supports `--source auto`, `--prefer ms,hf,github`, and `--fallback`.
+Supported URI forms include `hf://models/<repo>`, `hf://datasets/<repo>`, `ms://models/<repo>`, `ms://datasets/<repo>`, `github://owner/repo`, `kaggle://datasets/<owner>/<dataset>`, and `kaggle://competitions/<competition>`. Query parameters such as `?revision=...&file=...` are supported where the backend can use them.
+
+Common options:
+- `--profile {full,minimal,no-weights,inference}`: Apply a reusable file-selection preset.
+- `--include PATTERN [PATTERN ...]`: Include only matching paths.
+- `--exclude PATTERN [PATTERN ...]`: Exclude matching paths.
+- `--summary`: Show file counts, selected size, and asset categories for `files`.
+- `--prefer fastest`: Probe configured source endpoints and try the lowest-latency available source first.
+- `--manifest FILE --checksum`: Write a local download manifest with optional SHA256 checksums.
+- `--max-workers N`: Pass concurrency through to supported backends such as Hugging Face snapshot downloads.
+- `--retries N`: Retry unified `get` backend calls before failing.
+- `--timeout SECONDS`: Pass timeout controls to supported HTTP/probe backends.
+- `--no-resume`: Disable backend resume behavior where supported by `get`.
+
+`plan` is a dry-run planning command. It does not download files; it shows selected files, estimated size, cache hits/misses, and model asset categories. `card` fetches a README/model card and parses simple YAML-style frontmatter. `analyze` combines metadata, file summaries, weight-format detection, card presence, and largest-file reporting; `analyze --deep` adds filename/metadata-derived format byte counts, quantization hints, profile recommendations, and risk flags without downloading file contents. `compare` performs a deep pairwise comparison of two explicit resources; `--files`, `--card`, `--formats`, and `--deep` add file diffs, normalized card metadata diffs, and format/deep-analysis deltas. `capabilities` reports declared backend support and optional dependency availability. `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`; with `--checksum`, it also compares SHA256 values when present. `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
 
 ### Watch Commands
 
@@ -551,10 +625,10 @@ Options:
 modely-ai search [keyword] [OPTIONS]
 ```
 
-Search is available across Hugging Face (models and datasets), ModelScope (models and datasets), and GitHub (AI/ML repositories). The keyword is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads.
+Search is available across Hugging Face (models and datasets), ModelScope (models and datasets), GitHub (AI/ML repositories), and experimental Kaggle dataset search. The keyword is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads.
 
 Options:
-- `--source, -s {hf,ms,github,all}`: Platform to search (default: all)
+- `--source, -s {hf,ms,github,kaggle,all}`: Platform to search (default: all)
 - `--repo-type, -t {model,dataset,tool}`: Type of repository (default: model; GitHub uses `tool`)
 - `--task TASK`: Filter by task type (e.g., text-classification, text-generation)
 - `--library LIBRARY`: Filter by library, HF only (e.g., transformers, pytorch)
@@ -566,6 +640,8 @@ Options:
 - `--after DATE`: Only repos modified after this date (YYYY-MM-DD)
 - `--before DATE`: Only repos modified before this date (YYYY-MM-DD)
 - `--json`: Output results as JSON instead of a table
+- `--dedupe`: Group potential cross-platform matches by normalized repository name
+- `--compare`: Show grouped search-result comparison rows (lightweight; use `modely-ai compare` for deep pairwise comparison)
 
 ## Requirements
 
@@ -574,6 +650,7 @@ Options:
 - tqdm >= 4.62.0
 - huggingface-hub >= 0.20.0
 - Optional: modelscope >= 1.0.0 for `modely-ai[modelscope]` official ModelScope SDK backend
+- Optional: kaggle for experimental Kaggle dataset/competition search and downloads
 
 ## Development
 

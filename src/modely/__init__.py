@@ -1,6 +1,7 @@
 import os
 import sys
 import argparse
+import json
 from .modelscope import (
     main as modelscope_main,
     model_file_download,
@@ -26,10 +27,17 @@ from .watch import (
 )
 from .search import SearchResult, main as search_main
 from .auth import delete_token, save_token, whoami
+from .backends import get_backend_capabilities, list_backends, print_backend_capabilities
+from .analyze import analyze_resource, print_asset_analysis
+from .card import get_card, print_card
+from .compare import compare_resources, print_comparison
 from .files import do_dry_run, format_file_size, list_repo_files, print_file_list
 from .get import download_resource
 from .info import get_repo_info, print_repo_info
-from .manifest import create_download_manifest, create_lock, install_lock
+from .manifest import create_download_manifest, create_lock, install_lock, print_lock_validation, validate_lock
+from .plan import create_download_plan, print_download_plan
+from .profiles import PROFILES, resolve_download_profile
+from .sources import list_source_profiles, print_probe_results, print_source_profiles, rank_sources
 from .sync import sync_resource
 from .common import cache
 
@@ -161,7 +169,57 @@ def main():
     files_parser.add_argument('--token', type=str, default=None)
     files_parser.add_argument('--endpoint', type=str, default=None)
     files_parser.add_argument('--release', type=str, default=None)
+    files_parser.add_argument('--include', nargs='+', default=None)
+    files_parser.add_argument('--exclude', nargs='+', default=None)
+    files_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    files_parser.add_argument('--summary', action='store_true')
     files_parser.add_argument('--json', action='store_true')
+
+    plan_parser = subparsers.add_parser("plan", help="Preview and summarize a download without downloading")
+    plan_parser.add_argument("resource", type=str)
+    plan_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
+    plan_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space', 'tool'], default='model')
+    plan_parser.add_argument('--revision', type=str, default=None)
+    plan_parser.add_argument('--include', nargs='+', default=None)
+    plan_parser.add_argument('--exclude', nargs='+', default=None)
+    plan_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    plan_parser.add_argument('--cache-dir', default=None)
+    plan_parser.add_argument('--local-dir', default=None)
+    plan_parser.add_argument('--token', default=None)
+    plan_parser.add_argument('--endpoint', default=None)
+    plan_parser.add_argument('--release', default=None)
+    plan_parser.add_argument('--json', action='store_true')
+
+    card_parser = subparsers.add_parser("card", help="Fetch and parse a model/dataset/repository card")
+    card_parser.add_argument("resource", type=str)
+    card_parser.add_argument('--revision', type=str, default=None)
+    card_parser.add_argument('--token', default=None)
+    card_parser.add_argument('--endpoint', default=None)
+    card_parser.add_argument('--json', action='store_true')
+
+    analyze_parser = subparsers.add_parser("analyze", help="Analyze repository metadata, files, card, and weight formats")
+    analyze_parser.add_argument("resource", type=str)
+    analyze_parser.add_argument('--revision', type=str, default=None)
+    analyze_parser.add_argument('--token', default=None)
+    analyze_parser.add_argument('--endpoint', default=None)
+    analyze_parser.add_argument('--include', nargs='+', default=None)
+    analyze_parser.add_argument('--exclude', nargs='+', default=None)
+    analyze_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    analyze_parser.add_argument('--top-files', type=int, default=5)
+    analyze_parser.add_argument('--deep', action='store_true', help='Add metadata-derived format, quantization, profile, and risk analysis')
+    analyze_parser.add_argument('--json', action='store_true')
+
+    compare_parser = subparsers.add_parser("compare", help="Compare two modely resources")
+    compare_parser.add_argument("left", type=str)
+    compare_parser.add_argument("right", type=str)
+    compare_parser.add_argument('--revision-left', default=None)
+    compare_parser.add_argument('--revision-right', default=None)
+    compare_parser.add_argument('--token', default=None)
+    compare_parser.add_argument('--files', action='store_true', help='Include added/removed/common file details')
+    compare_parser.add_argument('--card', action='store_true', help='Include normalized card metadata differences')
+    compare_parser.add_argument('--formats', action='store_true', help='Include weight format differences')
+    compare_parser.add_argument('--deep', action='store_true', help='Run deep analysis before comparing')
+    compare_parser.add_argument('--json', action='store_true')
 
     get_parser = subparsers.add_parser("get", help="Download by URI or auto-selected source")
     get_parser.add_argument("resource", type=str)
@@ -181,10 +239,34 @@ def main():
     get_parser.add_argument('--with-lfs', action='store_true')
     get_parser.add_argument('--manifest', type=str, default=None)
     get_parser.add_argument('--checksum', action='store_true')
+    get_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    get_parser.add_argument('--endpoint', type=str, default=None)
+    get_parser.add_argument('--max-workers', type=int, default=None)
+    get_parser.add_argument('--timeout', type=float, default=None)
+    get_parser.add_argument('--retries', type=int, default=None)
+    get_parser.add_argument('--no-resume', action='store_true', help='Disable backend resume behavior where supported')
+
+    sources_parser = subparsers.add_parser("sources", help="List or probe source endpoints")
+    sources_subparsers = sources_parser.add_subparsers(dest="sources_command")
+    sources_list_parser = sources_subparsers.add_parser("list", help="List source profiles")
+    sources_list_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
+    sources_list_parser.add_argument('--json', action='store_true')
+    sources_probe_parser = sources_subparsers.add_parser("probe", help="Probe source endpoints")
+    sources_probe_parser.add_argument('resource', nargs='?', default=None)
+    sources_probe_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
+    sources_probe_parser.add_argument('--timeout', type=float, default=5)
+    sources_probe_parser.add_argument('--json', action='store_true')
+
+    capabilities_parser = subparsers.add_parser("capabilities", help="Show source/backend capability matrix")
+    capabilities_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'http', 'all'], default='all')
+    capabilities_parser.add_argument('--backend', default=None, help='Specific backend or source alias to inspect')
+    capabilities_parser.add_argument('--json', action='store_true')
 
     login_parser = subparsers.add_parser("login", help="Store a source token")
     login_parser.add_argument('source', choices=['hf', 'ms', 'github'])
-    login_parser.add_argument('--token', required=True)
+    login_group = login_parser.add_mutually_exclusive_group(required=True)
+    login_group.add_argument('--token')
+    login_group.add_argument('--stdin', action='store_true', help='Read token from stdin')
     logout_parser = subparsers.add_parser("logout", help="Remove a stored source token")
     logout_parser.add_argument('source', choices=['hf', 'ms', 'github'])
     whoami_parser = subparsers.add_parser("whoami", help="Show token status/identity")
@@ -206,6 +288,12 @@ def main():
     install_parser.add_argument('--token', default=None)
     install_parser.add_argument('--force-download', action='store_true')
 
+    validate_lock_parser = subparsers.add_parser("validate-lock", help="Validate a modely lockfile against local files")
+    validate_lock_parser.add_argument('-f', '--file', required=True)
+    validate_lock_parser.add_argument('--local-dir', default=None)
+    validate_lock_parser.add_argument('--checksum', action='store_true')
+    validate_lock_parser.add_argument('--json', action='store_true')
+
     sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
     mirror_parser = subparsers.add_parser("mirror", help="Alias for sync")
     for p in (sync_parser, mirror_parser):
@@ -221,6 +309,7 @@ def main():
         p.add_argument('--force-download', action='store_true')
         p.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
         p.add_argument('--prefer', default='ms,hf,github')
+        p.add_argument('--profile', choices=list(PROFILES), default=None)
 
     # Watch subcommand
     watch_parser = subparsers.add_parser("watch", help="Watch repositories and download updates")
@@ -230,7 +319,7 @@ def main():
     search_parser = subparsers.add_parser("search", help="Search for models and datasets")
     search_parser.add_argument("keyword", type=str, nargs="?", default=None, help="Search keyword for model/dataset name")
     search_parser.add_argument(
-        "--source", "-s", choices=["hf", "ms", "github", "all"], default="all",
+        "--source", "-s", choices=["hf", "ms", "github", "kaggle", "all"], default="all",
         help="Platform to search (default: all)",
     )
     search_parser.add_argument(
@@ -281,6 +370,14 @@ def main():
     search_parser.add_argument(
         "--json", action="store_true",
         help="Output results as JSON",
+    )
+    search_parser.add_argument(
+        "--dedupe", action="store_true",
+        help="Group search results by normalized repository name",
+    )
+    search_parser.add_argument(
+        "--compare", action="store_true",
+        help="Show grouped search-result comparison rows",
     )
 
     args = parser.parse_args()
@@ -448,9 +545,48 @@ def main():
             sys.exit(1)
     elif args.command == "files":
         try:
+            include, exclude = resolve_download_profile(args.profile, args.include, args.exclude)
             files = list_repo_files(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint, release=args.release)
+            from .files import filter_files
+            files = filter_files(files, include, exclude)
             ref_source = args.resource.split("://", 1)[0] if "://" in args.resource else "hf"
-            print_file_list(files, ref_source, args.resource, as_json=args.json)
+            print_file_list(files, ref_source, args.resource, as_json=args.json, summary=args.summary)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "plan":
+        try:
+            plan = create_download_plan(args.resource, source=args.source, repo_type=args.repo_type,
+                                        revision=args.revision, include=args.include, exclude=args.exclude,
+                                        profile=args.profile, token=args.token, endpoint=args.endpoint,
+                                        cache_dir=args.cache_dir, local_dir=args.local_dir, release=args.release)
+            print_download_plan(plan, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "card":
+        try:
+            card = get_card(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint)
+            print_card(card, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "analyze":
+        try:
+            analysis = analyze_resource(args.resource, revision=args.revision, token=args.token,
+                                        endpoint=args.endpoint, include=args.include, exclude=args.exclude,
+                                        profile=args.profile, top_files=args.top_files, deep=args.deep)
+            print_asset_analysis(analysis, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "compare":
+        try:
+            result = compare_resources(args.left, args.right, revision_left=args.revision_left,
+                                       revision_right=args.revision_right, token=args.token,
+                                       include_files=args.files, include_card=args.card,
+                                       include_formats=args.formats, deep=args.deep)
+            print_comparison(result, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -472,6 +608,13 @@ def main():
                 force_download=args.force_download,
                 backend=args.backend,
                 with_lfs=args.with_lfs,
+                profile=args.profile,
+                endpoint=args.endpoint,
+                max_workers=args.max_workers,
+                timeout=args.timeout,
+                retries=args.retries,
+                checksum=args.checksum,
+                resume=not args.no_resume,
             )
             if args.manifest:
                 create_download_manifest(args.resource if "://" in args.resource else f"hf://models/{args.resource}", result,
@@ -481,8 +624,37 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
+    elif args.command == "sources":
+        try:
+            if args.sources_command == "list":
+                print_source_profiles(list_source_profiles(args.source), as_json=args.json)
+            elif args.sources_command == "probe":
+                candidates = None if args.source == "all" else [args.source]
+                print_probe_results(rank_sources(args.resource, candidates=candidates, timeout=args.timeout), as_json=args.json)
+            else:
+                print("Usage: modely sources [list|probe]")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "capabilities":
+        try:
+            if args.backend:
+                items = get_backend_capabilities(args.backend)
+            else:
+                items = list_backends()
+                if args.source != "all":
+                    items = [item for item in items if item.source == args.source]
+            print_backend_capabilities(items, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
     elif args.command == "login":
-        save_token(args.source, args.token)
+        token = sys.stdin.read().strip() if args.stdin else args.token
+        if not token:
+            print("Error: token is empty")
+            sys.exit(1)
+        save_token(args.source, token)
         print(f"Token saved for {args.source}")
     elif args.command == "logout":
         removed = delete_token(args.source)
@@ -505,13 +677,22 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
+    elif args.command == "validate-lock":
+        try:
+            result = validate_lock(args.file, local_dir=args.local_dir, checksum=args.checksum)
+            print_lock_validation(result, as_json=args.json)
+            if not result["ok"]:
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
     elif args.command in {"sync", "mirror"}:
         try:
             result = sync_resource(args.resource, local_dir=args.local_dir, revision=args.revision,
                                    include=args.include, exclude=args.exclude, token=args.token,
                                    cache_dir=args.cache_dir, manifest=args.manifest,
                                    checksum=args.checksum, force_download=args.force_download,
-                                   source=args.source, prefer=args.prefer)
+                                   source=args.source, prefer=args.prefer, profile=args.profile)
             print(f"Synced to: {result}")
         except Exception as e:
             print(f"Error: {e}")

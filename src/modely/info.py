@@ -25,6 +25,9 @@ def get_repo_info(ref_or_uri, *, revision: Optional[str] = None, token: Optional
     if ref.source == "github":
         from .github import github_repo_info
         return github_repo_info(ref.repo_id, revision=ref.revision or "main", token=token)
+    if ref.source == "kaggle":
+        from .kaggle import kaggle_repo_info
+        return kaggle_repo_info(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision, token=token)
     raise ValueError(f"Unsupported source: {ref.source}")
 
 

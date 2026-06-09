@@ -2,25 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import List
 
 from .files import filter_files, list_repo_files
 from .get import download_resource
+from .reliability import sha256_file
 from .types import DownloadManifest, FileInfo
-from .uri import parse_modely_uri
+from .uri import format_modely_uri, parse_modely_uri
 
-
-def sha256_file(path: str) -> str:
-    """Compute a file's SHA256 digest."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def write_manifest(manifest: DownloadManifest, output: str) -> None:
@@ -61,7 +52,13 @@ def create_lock(resource: str, *, revision=None, include=None, exclude=None, out
         files=files,
         include=include,
         exclude=exclude,
-        metadata={"kind": "lock"},
+        metadata={
+            "kind": "lock",
+            "schema_version": 1,
+            "created_by": "modely-ai",
+            "file_count": len(files),
+            "total_size": sum(f.size or 0 for f in files),
+        },
     )
     write_manifest(manifest, output)
     return manifest
@@ -98,13 +95,69 @@ def create_download_manifest(resource: str, local_path: str, *, include=None, ex
                 rel = str(p.relative_to(root))
                 files.append(FileInfo(path=rel, size=p.stat().st_size, sha256=sha256_file(str(p)) if checksum else None))
     files = filter_files(files, include, exclude)
-    manifest = DownloadManifest(ref.source, ref.repo_type, ref.repo_id, ref.revision, str(local_path), files, include, exclude)
+    manifest = DownloadManifest(ref.source, ref.repo_type, ref.repo_id, ref.revision, str(local_path), files, include, exclude,
+                                metadata={"kind": "manifest", "schema_version": 1, "file_count": len(files), "total_size": sum(f.size or 0 for f in files)})
     if output:
         write_manifest(manifest, output)
     return manifest
 
 
+def validate_lock(lockfile: str, *, local_dir=None, checksum=False) -> dict:
+    """Validate a lockfile against local files without network access."""
+    manifest = read_manifest(lockfile)
+    root = Path(local_dir or manifest.local_path or ".")
+    missing_files = []
+    checksum_mismatches = []
+    missing_checksums = []
+    checked_files = 0
+    for file_info in manifest.files:
+        path = root / file_info.path
+        if not path.exists():
+            missing_files.append(file_info.path)
+            continue
+        checked_files += 1
+        if checksum:
+            if not file_info.sha256:
+                missing_checksums.append(file_info.path)
+            else:
+                actual = sha256_file(str(path))
+                if actual.lower() != file_info.sha256.lower():
+                    checksum_mismatches.append({"path": file_info.path, "expected": file_info.sha256, "actual": actual})
+    ok = not missing_files and not checksum_mismatches
+    return {
+        "ok": ok,
+        "lockfile": lockfile,
+        "local_dir": str(root),
+        "checked_files": checked_files,
+        "total_files": len(manifest.files),
+        "missing_files": missing_files,
+        "checksum_mismatches": checksum_mismatches,
+        "missing_checksums": missing_checksums,
+    }
+
+
+def print_lock_validation(result: dict, *, as_json=False) -> None:
+    """Print lock validation results."""
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+    print(f"Lockfile:      {result['lockfile']}")
+    print(f"Local dir:     {result['local_dir']}")
+    print(f"Status:        {'ok' if result['ok'] else 'failed'}")
+    print(f"Checked files: {result['checked_files']}/{result['total_files']}")
+    if result["missing_files"]:
+        print("Missing files:")
+        for path in result["missing_files"]:
+            print(f"  - {path}")
+    if result["checksum_mismatches"]:
+        print("Checksum mismatches:")
+        for item in result["checksum_mismatches"]:
+            print(f"  - {item['path']}")
+    if result["missing_checksums"]:
+        print("Missing checksums:")
+        for path in result["missing_checksums"]:
+            print(f"  - {path}")
+
+
 def _manifest_uri(manifest: DownloadManifest) -> str:
-    if manifest.source == "github":
-        return f"github://{manifest.repo_id}"
-    return f"{manifest.source}://{manifest.repo_type}s/{manifest.repo_id}"
+    return format_modely_uri(manifest)

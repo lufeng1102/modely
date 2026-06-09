@@ -14,7 +14,9 @@ from .types import SearchResult
 from .hf_search import search_huggingface
 from .ms_search import search_modelscope
 from .gh_search import search_github
+from .kaggle_search import search_kaggle
 from .display import format_table, format_json
+from .dedupe import dedupe_results, format_grouped_json, format_grouped_table
 
 
 # Sort field mapping for cross-platform result sorting
@@ -138,14 +140,22 @@ def search(
             limit=limit,
         )
 
+    def _fetch_kg():
+        if library:
+            warnings.warn("--library filter is not supported on Kaggle, ignoring.")
+        if license:
+            warnings.warn("--license filter is not supported on Kaggle, ignoring.")
+        return search_kaggle(keyword=keyword, repo_type=repo_type, limit=limit)
+
     all_results: List[SearchResult] = []
 
     if source == "all":
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
                 executor.submit(_fetch_hf): "hf",
                 executor.submit(_fetch_ms): "ms",
                 executor.submit(_fetch_gh): "github",
+                executor.submit(_fetch_kg): "kaggle",
             }
             for future in as_completed(futures):
                 try:
@@ -158,6 +168,8 @@ def search(
         all_results = _fetch_ms()
     elif source == "github":
         all_results = _fetch_gh()
+    elif source == "kaggle":
+        all_results = _fetch_kg()
     else:
         raise ValueError(f"Unknown source: {source}")
 
@@ -194,7 +206,13 @@ def main(args) -> None:
             full=getattr(args, "full", False),
         )
 
-        if args.json:
+        if getattr(args, "dedupe", False) or getattr(args, "compare", False):
+            groups = dedupe_results(results)
+            if args.json:
+                print(format_grouped_json(groups))
+            else:
+                print(format_grouped_table(groups, compare=getattr(args, "compare", False)))
+        elif args.json:
             print(format_json(results))
         else:
             print(format_table(results))
