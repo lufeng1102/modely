@@ -2,24 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import List
 
 from .files import filter_files, list_repo_files
 from .get import download_resource
+from .reliability import sha256_file
 from .types import DownloadManifest, FileInfo
 from .uri import format_modely_uri, parse_modely_uri
 
-
-def sha256_file(path: str) -> str:
-    """Compute a file's SHA256 digest."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def write_manifest(manifest: DownloadManifest, output: str) -> None:

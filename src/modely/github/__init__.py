@@ -27,6 +27,7 @@ def github_file_download(
     local_dir: Optional[str] = None,
     token: Optional[str] = None,
     force_download: bool = False,
+    timeout: Optional[float] = None,
 ) -> str:
     """
     Download a single file from a GitHub repository.
@@ -58,7 +59,7 @@ def github_file_download(
     # Determine save location
     if local_dir:
         file_path = os.path.join(local_dir, filename)
-        os.makedirs(local_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
     else:
         file_path = github_cache.get_file_path(
             repo_id, filename, revision, "tool", "github", cache_dir
@@ -75,7 +76,7 @@ def github_file_download(
         headers["Authorization"] = f"token {token}"
 
     try:
-        response = requests.get(url, headers=headers, stream=True, timeout=30)
+        response = requests.get(url, headers=headers, stream=True, timeout=timeout or 30)
         response.raise_for_status()
 
         total_size = int(response.headers.get("content-length", 0))

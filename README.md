@@ -31,7 +31,7 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`), querying (`info`, `files`, `card`, `analyze`, `compare`), searching (`search`), locking/syncing (`lock`, `install`, `validate-lock`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
+modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`), querying (`info`, `files`, `card`, `analyze`, `compare`), inspecting backend support (`capabilities`), searching (`search`), locking/syncing (`lock`, `install`, `validate-lock`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
 
 #### Download from Hugging Face
 
@@ -164,7 +164,9 @@ modely-ai info ms://models/AI-ModelScope/gpt2
 modely-ai info github://owner/repo --json
 modely-ai card hf://models/gpt2 --json
 modely-ai analyze hf://models/gpt2 --profile minimal
+modely-ai analyze hf://models/gpt2 --deep --json
 modely-ai compare hf://models/gpt2 ms://models/AI-ModelScope/gpt2
+modely-ai compare hf://models/gpt2 ms://models/AI-ModelScope/gpt2 --files --card --formats --deep
 
 # File listing and planning
 modely-ai files hf://models/gpt2 --include "*.json" --summary
@@ -176,9 +178,12 @@ modely-ai plan Qwen/Qwen2.5-7B --source hf --profile no-weights --json
 modely-ai get hf://models/gpt2 --file config.json
 modely-ai get Qwen/Qwen2.5-7B --source auto --prefer ms,hf --fallback
 modely-ai get Qwen/Qwen2.5-7B --source auto --prefer fastest --fallback --profile inference
+modely-ai get hf://models/gpt2 --file config.json --retries 5 --timeout 30 --no-resume
 modely-ai get github://owner/repo --include "examples/*"
 
-# Source endpoint discovery/probing
+# Source endpoint discovery/probing and declared backend capabilities
+modely-ai capabilities
+modely-ai capabilities --source hf --json
 modely-ai sources list
 modely-ai sources list --source hf
 modely-ai sources probe hf://models/gpt2 --source all
@@ -396,7 +401,7 @@ files = list_repo_files("github://owner/repo", revision="main")
 summary = summarize_files(files, include=["*.json"])
 card = get_card("hf://models/gpt2")
 plan = create_download_plan("hf://models/gpt2", profile="minimal")
-comparison = compare_resources("hf://models/gpt2", "ms://models/AI-ModelScope/gpt2")
+comparison = compare_resources("hf://models/gpt2", "ms://models/AI-ModelScope/gpt2", include_files=True, include_formats=True, deep=True)
 path = download_resource("hf://models/gpt2", file="config.json")
 
 # Resolve profile presets and probe sources
@@ -567,11 +572,12 @@ Options:
 ```bash
 modely-ai info <URI> [--json]
 modely-ai card <URI> [--json]
-modely-ai analyze <URI> [--profile PROFILE] [--json]
-modely-ai compare <URI> <URI> [--json]
+modely-ai analyze <URI> [--profile PROFILE] [--deep] [--json]
+modely-ai compare <URI> <URI> [--files] [--card] [--formats] [--deep] [--json]
 modely-ai files <URI> [--include PATTERN ...] [--exclude PATTERN ...] [--profile PROFILE] [--summary] [--json]
 modely-ai plan <URI-or-repo> [--source SOURCE] [--profile PROFILE] [--json]
 modely-ai get <URI-or-repo> [OPTIONS]
+modely-ai capabilities [--source SOURCE | --backend BACKEND] [--json]
 modely-ai sources <list|probe> [OPTIONS]
 modely-ai login <hf|ms|github> (--token TOKEN | --stdin)
 modely-ai logout <hf|ms|github>
@@ -593,8 +599,11 @@ Common options:
 - `--prefer fastest`: Probe configured source endpoints and try the lowest-latency available source first.
 - `--manifest FILE --checksum`: Write a local download manifest with optional SHA256 checksums.
 - `--max-workers N`: Pass concurrency through to supported backends such as Hugging Face snapshot downloads.
+- `--retries N`: Retry unified `get` backend calls before failing.
+- `--timeout SECONDS`: Pass timeout controls to supported HTTP/probe backends.
+- `--no-resume`: Disable backend resume behavior where supported by `get`.
 
-`plan` is a dry-run planning command. It does not download files; it shows selected files, estimated size, cache hits/misses, and model asset categories. `card` fetches a README/model card and parses simple YAML-style frontmatter. `analyze` combines metadata, file summaries, weight-format detection, card presence, and largest-file reporting. `compare` performs a deep pairwise comparison of two explicit resources. `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`; with `--checksum`, it also compares SHA256 values when present. `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
+`plan` is a dry-run planning command. It does not download files; it shows selected files, estimated size, cache hits/misses, and model asset categories. `card` fetches a README/model card and parses simple YAML-style frontmatter. `analyze` combines metadata, file summaries, weight-format detection, card presence, and largest-file reporting; `analyze --deep` adds filename/metadata-derived format byte counts, quantization hints, profile recommendations, and risk flags without downloading file contents. `compare` performs a deep pairwise comparison of two explicit resources; `--files`, `--card`, `--formats`, and `--deep` add file diffs, normalized card metadata diffs, and format/deep-analysis deltas. `capabilities` reports declared backend support and optional dependency availability. `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`; with `--checksum`, it also compares SHA256 values when present. `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
 
 ### Watch Commands
 

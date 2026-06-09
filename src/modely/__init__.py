@@ -27,6 +27,7 @@ from .watch import (
 )
 from .search import SearchResult, main as search_main
 from .auth import delete_token, save_token, whoami
+from .backends import get_backend_capabilities, list_backends, print_backend_capabilities
 from .analyze import analyze_resource, print_asset_analysis
 from .card import get_card, print_card
 from .compare import compare_resources, print_comparison
@@ -205,6 +206,7 @@ def main():
     analyze_parser.add_argument('--exclude', nargs='+', default=None)
     analyze_parser.add_argument('--profile', choices=list(PROFILES), default=None)
     analyze_parser.add_argument('--top-files', type=int, default=5)
+    analyze_parser.add_argument('--deep', action='store_true', help='Add metadata-derived format, quantization, profile, and risk analysis')
     analyze_parser.add_argument('--json', action='store_true')
 
     compare_parser = subparsers.add_parser("compare", help="Compare two modely resources")
@@ -213,6 +215,10 @@ def main():
     compare_parser.add_argument('--revision-left', default=None)
     compare_parser.add_argument('--revision-right', default=None)
     compare_parser.add_argument('--token', default=None)
+    compare_parser.add_argument('--files', action='store_true', help='Include added/removed/common file details')
+    compare_parser.add_argument('--card', action='store_true', help='Include normalized card metadata differences')
+    compare_parser.add_argument('--formats', action='store_true', help='Include weight format differences')
+    compare_parser.add_argument('--deep', action='store_true', help='Run deep analysis before comparing')
     compare_parser.add_argument('--json', action='store_true')
 
     get_parser = subparsers.add_parser("get", help="Download by URI or auto-selected source")
@@ -238,6 +244,7 @@ def main():
     get_parser.add_argument('--max-workers', type=int, default=None)
     get_parser.add_argument('--timeout', type=float, default=None)
     get_parser.add_argument('--retries', type=int, default=None)
+    get_parser.add_argument('--no-resume', action='store_true', help='Disable backend resume behavior where supported')
 
     sources_parser = subparsers.add_parser("sources", help="List or probe source endpoints")
     sources_subparsers = sources_parser.add_subparsers(dest="sources_command")
@@ -249,6 +256,11 @@ def main():
     sources_probe_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
     sources_probe_parser.add_argument('--timeout', type=float, default=5)
     sources_probe_parser.add_argument('--json', action='store_true')
+
+    capabilities_parser = subparsers.add_parser("capabilities", help="Show source/backend capability matrix")
+    capabilities_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'http', 'all'], default='all')
+    capabilities_parser.add_argument('--backend', default=None, help='Specific backend or source alias to inspect')
+    capabilities_parser.add_argument('--json', action='store_true')
 
     login_parser = subparsers.add_parser("login", help="Store a source token")
     login_parser.add_argument('source', choices=['hf', 'ms', 'github'])
@@ -563,7 +575,7 @@ def main():
         try:
             analysis = analyze_resource(args.resource, revision=args.revision, token=args.token,
                                         endpoint=args.endpoint, include=args.include, exclude=args.exclude,
-                                        profile=args.profile, top_files=args.top_files)
+                                        profile=args.profile, top_files=args.top_files, deep=args.deep)
             print_asset_analysis(analysis, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
@@ -571,7 +583,9 @@ def main():
     elif args.command == "compare":
         try:
             result = compare_resources(args.left, args.right, revision_left=args.revision_left,
-                                       revision_right=args.revision_right, token=args.token)
+                                       revision_right=args.revision_right, token=args.token,
+                                       include_files=args.files, include_card=args.card,
+                                       include_formats=args.formats, deep=args.deep)
             print_comparison(result, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
@@ -599,6 +613,8 @@ def main():
                 max_workers=args.max_workers,
                 timeout=args.timeout,
                 retries=args.retries,
+                checksum=args.checksum,
+                resume=not args.no_resume,
             )
             if args.manifest:
                 create_download_manifest(args.resource if "://" in args.resource else f"hf://models/{args.resource}", result,
@@ -618,6 +634,18 @@ def main():
             else:
                 print("Usage: modely sources [list|probe]")
                 sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "capabilities":
+        try:
+            if args.backend:
+                items = get_backend_capabilities(args.backend)
+            else:
+                items = list_backends()
+                if args.source != "all":
+                    items = [item for item in items if item.source == args.source]
+            print_backend_capabilities(items, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)

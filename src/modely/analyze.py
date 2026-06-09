@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Optional, List
 
 from .card import get_card
@@ -10,6 +11,12 @@ from .files import classify_file, filter_files, format_file_size, list_repo_file
 from .info import get_repo_info
 from .profiles import resolve_download_profile
 from .types import AssetAnalysis, FileInfo
+
+_WEIGHT_SUFFIXES = (".safetensors", ".gguf", ".bin", ".pt", ".pth", ".ckpt", ".onnx", ".h5", ".msgpack")
+_DATASET_SUFFIXES = (".parquet", ".jsonl", ".csv", ".tsv", ".arrow", ".zip", ".tar", ".tar.gz")
+_METADATA_SUFFIXES = (".json", ".yaml", ".yml", ".txt", ".md")
+_FORMAT_SUFFIXES = _WEIGHT_SUFFIXES + _DATASET_SUFFIXES + _METADATA_SUFFIXES
+_QUANTIZATION_RE = re.compile(r"(?:^|[-_.])(q\d(?:_[a-z0-9]+)*|f16|bf16|fp16|fp32|int8)(?:[-_.]|$)", re.IGNORECASE)
 
 
 def analyze_resource(
@@ -22,6 +29,7 @@ def analyze_resource(
     exclude: Optional[List[str]] = None,
     profile: Optional[str] = None,
     top_files: int = 5,
+    deep: bool = False,
 ) -> AssetAnalysis:
     """Analyze metadata, files, card presence, and weight formats for a resource."""
     warnings = []
@@ -46,6 +54,16 @@ def analyze_resource(
     if not has_card:
         warnings.append("No model/dataset card detected")
     warnings.extend(card.warnings)
+    metadata = {"profile": profile, "include": include, "exclude": exclude}
+    if deep:
+        metadata["deep"] = deep_file_analysis(
+            selected,
+            license_name=info.license,
+            has_config=has_config,
+            has_tokenizer=has_tokenizer,
+            has_card=has_card,
+            top_files=top_files,
+        )
     return AssetAnalysis(
         info=info,
         summary=summary,
@@ -57,8 +75,68 @@ def analyze_resource(
         has_card=has_card,
         card=card,
         warnings=list(dict.fromkeys(warnings)),
-        metadata={"profile": profile, "include": include, "exclude": exclude},
+        metadata=metadata,
     )
+
+
+def deep_file_analysis(
+    files: List[FileInfo],
+    *,
+    license_name: Optional[str] = None,
+    has_config: bool = False,
+    has_tokenizer: bool = False,
+    has_card: bool = False,
+    top_files: int = 5,
+) -> dict:
+    """Return metadata-only deep analysis derived from file names and sizes."""
+    formats = {}
+    weight_bytes = 0
+    dataset_bytes = 0
+    quantization = {}
+    weight_files = []
+    for f in files:
+        fmt = _file_format(f.path)
+        if fmt:
+            bucket = formats.setdefault(fmt, {"count": 0, "bytes": 0})
+            bucket["count"] += 1
+            bucket["bytes"] += f.size or 0
+        if _is_weight_file(f.path):
+            weight_bytes += f.size or 0
+            weight_files.append(f)
+            hint = _quantization_hint(f.path)
+            if hint:
+                quantization[hint] = quantization.get(hint, 0) + 1
+        if _is_dataset_file(f.path):
+            dataset_bytes += f.size or 0
+
+    largest_weight_files = [
+        {"path": f.path, "size": f.size, "format": _file_format(f.path)}
+        for f in sorted(weight_files, key=lambda item: item.size or 0, reverse=True)[:top_files]
+    ]
+    flags = {
+        "has_safetensors": "safetensors" in formats,
+        "has_gguf": "gguf" in formats,
+        "has_onnx": "onnx" in formats,
+        "has_parquet": "parquet" in formats,
+        "has_jsonl": "jsonl" in formats,
+    }
+    risk_flags = _risk_flags(
+        license_name=license_name,
+        has_config=has_config,
+        has_tokenizer=has_tokenizer,
+        has_card=has_card,
+        weight_bytes=weight_bytes,
+    )
+    return {
+        "formats": formats,
+        "weight_bytes": weight_bytes,
+        "dataset_bytes": dataset_bytes,
+        "largest_weight_files": largest_weight_files,
+        "quantization": dict(sorted(quantization.items())),
+        **flags,
+        "recommended_profiles": _recommended_profiles(weight_bytes, dataset_bytes, flags),
+        "risk_flags": risk_flags,
+    }
 
 
 def print_asset_analysis(analysis: AssetAnalysis, *, as_json: bool = False) -> None:
@@ -89,6 +167,17 @@ def print_asset_analysis(analysis: AssetAnalysis, *, as_json: bool = False) -> N
         print("Weight formats:")
         for name, count in sorted(analysis.weight_formats.items()):
             print(f"  - {name}: {count}")
+    deep = analysis.metadata.get("deep") if analysis.metadata else None
+    if deep:
+        print("Deep analysis:")
+        print(f"  Weight bytes:  {format_file_size(deep.get('weight_bytes', 0))}")
+        print(f"  Dataset bytes: {format_file_size(deep.get('dataset_bytes', 0))}")
+        if deep.get("quantization"):
+            print(f"  Quantization:  {', '.join(f'{k}:{v}' for k, v in deep['quantization'].items())}")
+        if deep.get("recommended_profiles"):
+            print(f"  Profiles:      {', '.join(deep['recommended_profiles'])}")
+        if deep.get("risk_flags"):
+            print(f"  Risk flags:    {', '.join(deep['risk_flags'])}")
     if analysis.largest_files:
         print("Largest files:")
         for f in analysis.largest_files:
@@ -102,12 +191,54 @@ def print_asset_analysis(analysis: AssetAnalysis, *, as_json: bool = False) -> N
 def _weight_formats(files: List[FileInfo]) -> dict:
     formats = {}
     for f in files:
-        lower = f.path.lower()
-        fmt = None
-        for suffix in (".safetensors", ".gguf", ".bin", ".pt", ".pth", ".ckpt", ".onnx", ".h5", ".msgpack"):
-            if lower.endswith(suffix):
-                fmt = suffix.lstrip(".")
-                break
-        if fmt:
+        fmt = _file_format(f.path)
+        if fmt and _is_weight_file(f.path):
             formats[fmt] = formats.get(fmt, 0) + 1
     return formats
+
+
+def _file_format(path: str) -> Optional[str]:
+    lower = path.lower()
+    for suffix in sorted(_FORMAT_SUFFIXES, key=len, reverse=True):
+        if lower.endswith(suffix):
+            return suffix.lstrip(".").replace(".", "-")
+    return None
+
+
+def _is_weight_file(path: str) -> bool:
+    return path.lower().endswith(_WEIGHT_SUFFIXES)
+
+
+def _is_dataset_file(path: str) -> bool:
+    return path.lower().endswith(_DATASET_SUFFIXES)
+
+
+def _quantization_hint(path: str) -> Optional[str]:
+    match = _QUANTIZATION_RE.search(path.rsplit("/", 1)[-1])
+    return match.group(1).lower() if match else None
+
+
+def _risk_flags(*, license_name, has_config, has_tokenizer, has_card, weight_bytes) -> list[str]:
+    flags = []
+    if not license_name:
+        flags.append("missing-license")
+    if not has_card:
+        flags.append("missing-card")
+    if not has_config:
+        flags.append("missing-config")
+    if not has_tokenizer:
+        flags.append("missing-tokenizer")
+    if weight_bytes >= 10_000_000_000:
+        flags.append("large-weights")
+    return flags
+
+
+def _recommended_profiles(weight_bytes: int, dataset_bytes: int, flags: dict) -> list[str]:
+    profiles = ["minimal"]
+    if weight_bytes:
+        profiles.append("no-weights")
+    if flags.get("has_safetensors") or flags.get("has_gguf") or flags.get("has_onnx"):
+        profiles.append("inference")
+    if dataset_bytes and not weight_bytes:
+        profiles.append("full")
+    return list(dict.fromkeys(profiles))
