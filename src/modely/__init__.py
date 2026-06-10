@@ -38,7 +38,11 @@ from .manifest import create_download_manifest, create_lock, install_lock, print
 from .plan import create_download_plan, print_download_plan
 from .profiles import PROFILES, resolve_download_profile
 from .sources import list_source_profiles, print_probe_results, print_source_profiles, rank_sources
+from .resolve import print_resolve_result, resolve_resource
+from .scan import print_scan_result, scan_resource
+from .score import print_asset_score, score_resource
 from .sync import sync_resource
+from .catalog import print_catalog_report, scan_catalog, write_catalog_report
 from .common import cache
 
 
@@ -209,6 +213,28 @@ def main():
     analyze_parser.add_argument('--deep', action='store_true', help='Add metadata-derived format, quantization, profile, and risk analysis')
     analyze_parser.add_argument('--json', action='store_true')
 
+    score_parser = subparsers.add_parser("score", help="Score modely resource health")
+    score_parser.add_argument("resource")
+    score_parser.add_argument('--revision', type=str, default=None)
+    score_parser.add_argument('--token', default=None)
+    score_parser.add_argument('--endpoint', default=None)
+    score_parser.add_argument('--include', nargs='+', default=None)
+    score_parser.add_argument('--exclude', nargs='+', default=None)
+    score_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    score_parser.add_argument('--no-deep', action='store_true', help='Disable deep metadata-derived scoring')
+    score_parser.add_argument('--json', action='store_true')
+
+    scan_parser = subparsers.add_parser("scan", help="Scan modely resource for metadata, safety, and reproducibility risks")
+    scan_parser.add_argument("resource")
+    scan_parser.add_argument('--revision', type=str, default=None)
+    scan_parser.add_argument('--token', default=None)
+    scan_parser.add_argument('--endpoint', default=None)
+    scan_parser.add_argument('--include', nargs='+', default=None)
+    scan_parser.add_argument('--exclude', nargs='+', default=None)
+    scan_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    scan_parser.add_argument('--no-deep', action='store_true', help='Disable deep metadata-derived scanning')
+    scan_parser.add_argument('--json', action='store_true')
+
     compare_parser = subparsers.add_parser("compare", help="Compare two modely resources")
     compare_parser.add_argument("left", type=str)
     compare_parser.add_argument("right", type=str)
@@ -278,8 +304,11 @@ def main():
     lock_parser.add_argument('--revision', type=str, default=None)
     lock_parser.add_argument('--include', nargs='+', default=None)
     lock_parser.add_argument('--exclude', nargs='+', default=None)
+    lock_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    lock_parser.add_argument('--endpoint', default=None)
     lock_parser.add_argument('--output', '-o', default='modely.lock')
     lock_parser.add_argument('--token', default=None)
+    lock_parser.add_argument('--json', action='store_true')
 
     install_parser = subparsers.add_parser("install", help="Install from a modely lockfile")
     install_parser.add_argument('-f', '--file', required=True)
@@ -293,6 +322,20 @@ def main():
     validate_lock_parser.add_argument('--local-dir', default=None)
     validate_lock_parser.add_argument('--checksum', action='store_true')
     validate_lock_parser.add_argument('--json', action='store_true')
+
+    catalog_parser = subparsers.add_parser("catalog", help="Inventory local or cached modely assets")
+    catalog_subparsers = catalog_parser.add_subparsers(dest="catalog_command")
+    catalog_scan_parser = catalog_subparsers.add_parser("scan", help="Scan a local directory or modely cache into a catalog report")
+    catalog_scan_parser.add_argument("root", nargs="?", default=None, help="Local root directory to scan")
+    catalog_scan_parser.add_argument('--cache', action='store_true', help='Catalog the modely cache instead of a local root')
+    catalog_scan_parser.add_argument('--cache-dir', default=None)
+    catalog_scan_parser.add_argument('--score', action='store_true', help='Attach score summaries; requires --remote')
+    catalog_scan_parser.add_argument('--scan', action='store_true', help='Attach scan summaries; requires --remote')
+    catalog_scan_parser.add_argument('--remote', action='store_true', help='Allow network metadata calls for score/scan enrichment')
+    catalog_scan_parser.add_argument('--token', default=None)
+    catalog_scan_parser.add_argument('--endpoint', default=None)
+    catalog_scan_parser.add_argument('--output', '-o', default=None, help='Write JSON report to a file')
+    catalog_scan_parser.add_argument('--json', action='store_true')
 
     sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
     mirror_parser = subparsers.add_parser("mirror", help="Alias for sync")
@@ -318,6 +361,25 @@ def main():
     # Watch subcommand
     watch_parser = subparsers.add_parser("watch", help="Watch repositories and download updates")
     configure_watch_parser(watch_parser)
+
+    # Resolve subcommand
+    resolve_parser = subparsers.add_parser("resolve", help="Resolve likely equivalent resources across sources")
+    resolve_parser.add_argument("query", type=str, help="Model/dataset name or modely URI to resolve")
+    resolve_parser.add_argument(
+        "--source", "-s", choices=["hf", "ms", "github", "kaggle", "all"], default="all",
+        help="Platform to search (default: all)",
+    )
+    resolve_parser.add_argument(
+        "--repo-type", "-t", choices=["model", "dataset", "tool"], default="model",
+        help="Type of repository (default: model)",
+    )
+    resolve_parser.add_argument("--task", default=None, help="Filter by task type")
+    resolve_parser.add_argument("--library", default=None, help="Filter by library where supported")
+    resolve_parser.add_argument("--license", default=None, help="Filter by license where supported")
+    resolve_parser.add_argument("--limit", "-n", type=int, default=10, help="Max results per source")
+    resolve_parser.add_argument("--threshold", type=float, default=0.35, help="Minimum confidence to include")
+    resolve_parser.add_argument("--full", action="store_true", help="Request richer backend metadata where supported")
+    resolve_parser.add_argument("--json", action="store_true", help="Output result as JSON")
 
     # Search subcommand
     search_parser = subparsers.add_parser("search", help="Search for models and datasets")
@@ -584,6 +646,24 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
+    elif args.command == "score":
+        try:
+            result = score_resource(args.resource, revision=args.revision, token=args.token,
+                                    endpoint=args.endpoint, include=args.include, exclude=args.exclude,
+                                    profile=args.profile, deep=not args.no_deep)
+            print_asset_score(result, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "scan":
+        try:
+            result = scan_resource(args.resource, revision=args.revision, token=args.token,
+                                   endpoint=args.endpoint, include=args.include, exclude=args.exclude,
+                                   profile=args.profile, deep=not args.no_deep)
+            print_scan_result(result, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
     elif args.command == "compare":
         try:
             result = compare_resources(args.left, args.right, revision_left=args.revision_left,
@@ -668,8 +748,12 @@ def main():
     elif args.command == "lock":
         try:
             manifest = create_lock(args.resource, revision=args.revision, include=args.include,
-                                   exclude=args.exclude, output=args.output, token=args.token)
-            print(f"Wrote lockfile to: {args.output} ({len(manifest.files)} file(s))")
+                                   exclude=args.exclude, output=args.output, token=args.token,
+                                   profile=args.profile, endpoint=args.endpoint)
+            if args.json:
+                print(json.dumps(manifest.to_dict(), indent=2, ensure_ascii=False))
+            else:
+                print(f"Wrote lockfile to: {args.output} ({len(manifest.files)} file(s))")
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -686,6 +770,21 @@ def main():
             result = validate_lock(args.file, local_dir=args.local_dir, checksum=args.checksum)
             print_lock_validation(result, as_json=args.json)
             if not result["ok"]:
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "catalog":
+        try:
+            if args.catalog_command == "scan":
+                report = scan_catalog(args.root, cache_dir=args.cache_dir, from_cache=args.cache,
+                                      include_scores=args.score, include_scan=args.scan,
+                                      use_remote=args.remote, token=args.token, endpoint=args.endpoint)
+                if args.output:
+                    write_catalog_report(report, args.output)
+                print_catalog_report(report, as_json=args.json)
+            else:
+                print("Usage: modely catalog scan [ROOT|--cache]")
                 sys.exit(1)
         except Exception as e:
             print(f"Error: {e}")
@@ -707,6 +806,15 @@ def main():
         cache_main(args)
     elif args.command == "watch":
         watch_main(args)
+    elif args.command == "resolve":
+        try:
+            result = resolve_resource(args.query, source=args.source, repo_type=args.repo_type,
+                                      task=args.task, library=args.library, license=args.license,
+                                      limit=args.limit, threshold=args.threshold, full=args.full)
+            print_resolve_result(result, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
     elif args.command == "search":
         search_main(args)
     else:
@@ -795,4 +903,12 @@ __all__ = [
     "search",
     "SearchResult",
     "search_main",
+    "resolve_resource",
+    "print_resolve_result",
+    "score_resource",
+    "print_asset_score",
+    "scan_resource",
+    "print_scan_result",
+    "scan_catalog",
+    "print_catalog_report",
 ]

@@ -1,14 +1,27 @@
 # modely-ai
 
-**modely-ai** is a Python package that provides a unified interface for downloading AI models and datasets from multiple platforms including Hugging Face, ModelScope, and GitHub. It offers a simple command-line tool and Python API to efficiently download models and datasets with progress tracking, resumable downloads, and minimal dependencies.
+**modely-ai** is a Python package that provides a unified interface for downloading, discovering, comparing, and governing AI models and datasets from multiple platforms including Hugging Face, ModelScope, GitHub, and Kaggle. It offers a command-line tool and Python API for cross-platform model asset workflows: search, resolve equivalent resources, choose reliable download sources, analyze metadata/files, score health, scan risks, create reproducible lockfiles, and catalog local assets.
+
+## Positioning
+
+modely-ai is designed as a cross-platform AI model asset manager rather than a single-source downloader. Single platforms can help users find and download resources hosted in that platform; modely-ai focuses on workflows that require a broader view across sources:
+
+- **Cross-source discovery**: search Hugging Face, ModelScope, GitHub, and Kaggle through one schema.
+- **Equivalent-resource resolution**: identify likely matches for the same model or dataset across platforms with confidence signals.
+- **Source selection and fallback**: probe endpoints, rank sources, and retry alternative platforms when downloads fail.
+- **Deep comparison**: compare files, cards, licenses, and weight formats between two resources.
+- **Health and risk evaluation**: score asset quality and scan metadata/security/reproducibility risks without downloading weights.
+- **Reproducible installs**: create lockfiles, install from them, and validate local files/checksums.
+- **Local asset governance**: catalog downloaded or cached assets for inventory, reporting, and future policy checks.
 
 ## Features
 
 - 🚀 **Unified interface**: Download from Hugging Face, ModelScope, GitHub, and experimental Kaggle URI support with a single tool
 - 🧭 **Resource URIs**: Address models, datasets, GitHub repositories, and Kaggle assets with `hf://`, `ms://`, `github://`, and `kaggle://` URIs
 - 🔍 **Model discovery**: Search models, datasets, and AI/ML repositories by name, task type, date, and more
+- 🧭 **Cross-source resolution**: Resolve likely equivalent models/datasets across platforms with confidence signals
 - 📋 **Metadata, planning, and file analysis**: Query repository info, list files, summarize asset categories, preview downloads, and create lockfiles
-- 🧩 **Cross-platform analysis and comparison**: Parse cards, analyze model assets, compare repositories, and group search results across sources
+- 🧩 **Cross-platform analysis and comparison**: Resolve likely equivalent resources, parse cards, analyze model assets, score health, scan metadata/security risks, compare repositories, and group search results across sources
 - 🌐 **Source probing and fallback**: Probe Hugging Face, HF mirrors, ModelScope, GitHub, and Kaggle endpoints before downloading
 - ⚡ **Progress tracking**: Real-time download progress with tqdm
 - 🔄 **Resumable downloads**: Resume interrupted downloads automatically
@@ -17,6 +30,7 @@
 - 📦 **Official SDKs**: Uses `huggingface-hub` official SDK and optional ModelScope official SDK support
 - 📦 **Minimal dependencies**: Only requires `requests`, `tqdm`, and `huggingface-hub`
 - 💾 **Smart caching**: Avoid duplicate downloads with unified cache system
+- 🗂️ **Local asset catalog**: Inventory local directories or modely cache entries with optional score/scan enrichment
 - 🗂️ **Cache management**: CLI commands to view, list, and clean cache
 
 ## Installation
@@ -31,7 +45,31 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`), querying (`info`, `files`, `card`, `analyze`, `compare`), inspecting backend support (`capabilities`), searching (`search`), locking/syncing (`lock`, `install`, `validate-lock`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
+modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`), querying and evaluating (`info`, `files`, `card`, `analyze`, `score`, `scan`, `compare`, `resolve`), inspecting backend support (`capabilities`), searching (`search`), reproducibility and inventory (`lock`, `install`, `validate-lock`, `catalog`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
+
+### Aggregation Workflows
+
+modely-ai's most useful workflows combine multiple commands into cross-platform asset decisions:
+
+```bash
+# 1. Find likely equivalent resources across platforms
+modely-ai resolve qwen2.5-7b-instruct --source all --json
+
+# 2. Verify whether two candidates are actually aligned
+modely-ai compare hf://models/Qwen/Qwen2.5-7B-Instruct ms://models/qwen/Qwen2.5-7B-Instruct --files --card --formats --deep
+
+# 3. Evaluate health and risks before adoption
+modely-ai score hf://models/Qwen/Qwen2.5-7B-Instruct
+modely-ai scan hf://models/Qwen/Qwen2.5-7B-Instruct
+
+# 4. Lock a reproducible selection and install it locally
+modely-ai lock hf://models/Qwen/Qwen2.5-7B-Instruct --profile inference --output modely.lock
+modely-ai install -f modely.lock --local-dir ./models/qwen2.5-7b
+modely-ai validate-lock -f modely.lock --local-dir ./models/qwen2.5-7b --checksum
+
+# 5. Inventory downloaded assets for governance/reporting
+modely-ai catalog scan ./models --json
+```
 
 #### Download from Hugging Face
 
@@ -165,8 +203,15 @@ modely-ai info github://owner/repo --json
 modely-ai card hf://models/gpt2 --json
 modely-ai analyze hf://models/gpt2 --profile minimal
 modely-ai analyze hf://models/gpt2 --deep --json
+modely-ai score hf://models/gpt2
+modely-ai score hf://models/gpt2 --json
+modely-ai scan hf://models/gpt2
+modely-ai scan hf://models/gpt2 --json
 modely-ai compare hf://models/gpt2 ms://models/AI-ModelScope/gpt2
 modely-ai compare hf://models/gpt2 ms://models/AI-ModelScope/gpt2 --files --card --formats --deep
+modely-ai resolve qwen2.5-7b-instruct
+modely-ai resolve qwen2.5-7b-instruct --source all --json
+modely-ai resolve hf://models/Qwen/Qwen2.5-7B-Instruct --repo-type model
 
 # File listing and planning
 modely-ai files hf://models/gpt2 --include "*.json" --summary
@@ -200,8 +245,16 @@ modely-ai logout github
 
 # Reproducible local installs
 modely-ai lock hf://models/gpt2 --include "*.json" --output modely.lock
+modely-ai lock hf://models/gpt2 --profile minimal --output modely.lock --json
 modely-ai install -f modely.lock --local-dir ./models/gpt2
 modely-ai validate-lock -f modely.lock --local-dir ./models/gpt2 --checksum
+
+# Catalog local assets or modely cache
+modely-ai catalog scan ./models
+modely-ai catalog scan ./models --json
+modely-ai catalog scan --cache --cache-dir ~/.cache/modely
+modely-ai catalog scan ./models --output catalog.json
+modely-ai catalog scan ./models --score --scan --remote --json
 
 # Download-only local sync/mirror (no upload)
 modely-ai sync hf://models/gpt2 --local-dir ./mirror/gpt2 --include "*.json"
@@ -270,6 +323,10 @@ modely-ai search mnist --source kaggle --repo-type dataset
 # Group potential cross-platform matches by normalized repository name
 modely-ai search qwen --source all --dedupe
 modely-ai search qwen --source hf --compare
+
+# Resolve likely equivalent resources across sources with confidence signals
+modely-ai resolve qwen2.5-7b-instruct
+modely-ai resolve qwen2.5-7b-instruct --source all --json
 ```
 
 Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. JSON output uses a stable cross-source schema with fields such as `id`, `source`, `repo_type`, `modely_uri`, `name`, `summary`, `downloads`, `likes`, `stars`, `forks`, `size_bytes`, tags, license, and source-specific `metadata`. The keyword argument is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads. Kaggle search is best-effort and requires the Kaggle package/credentials to be configured in the local environment.
@@ -578,7 +635,10 @@ Options:
 modely-ai info <URI> [--json]
 modely-ai card <URI> [--json]
 modely-ai analyze <URI> [--profile PROFILE] [--deep] [--json]
+modely-ai score <URI> [--profile PROFILE] [--json]
+modely-ai scan <URI> [--profile PROFILE] [--json]
 modely-ai compare <URI> <URI> [--files] [--card] [--formats] [--deep] [--json]
+modely-ai resolve <query-or-URI> [--source SOURCE] [--threshold N] [--json]
 modely-ai files <URI> [--include PATTERN ...] [--exclude PATTERN ...] [--profile PROFILE] [--summary] [--json]
 modely-ai plan <URI-or-repo> [--source SOURCE] [--profile PROFILE] [--json]
 modely-ai get <URI-or-repo> [OPTIONS]
@@ -587,7 +647,8 @@ modely-ai sources <list|probe> [OPTIONS]
 modely-ai login <hf|ms|github> (--token TOKEN | --stdin)
 modely-ai logout <hf|ms|github>
 modely-ai whoami <hf|ms|github>
-modely-ai lock <URI> --output modely.lock
+modely-ai lock <URI> [--profile PROFILE] [--output modely.lock] [--json]
+modely-ai catalog scan [ROOT] [--cache] [--score] [--scan] [--remote] [--json] [--output FILE]
 modely-ai validate-lock -f modely.lock [--local-dir DIR] [--checksum] [--json]
 modely-ai install -f modely.lock
 modely-ai sync <URI> --local-dir DIR
@@ -608,7 +669,7 @@ Common options:
 - `--timeout SECONDS`: Pass timeout controls to supported HTTP/probe backends.
 - `--no-resume`: Disable backend resume behavior where supported by `get`.
 
-`plan` is a dry-run planning command. It does not download files; it shows selected files, estimated size, cache hits/misses, and model asset categories. `card` fetches a README/model card and parses simple YAML-style frontmatter. `analyze` combines metadata, file summaries, weight-format detection, card presence, and largest-file reporting; `analyze --deep` adds filename/metadata-derived format byte counts, quantization hints, profile recommendations, and risk flags without downloading file contents. `compare` performs a deep pairwise comparison of two explicit resources; `--files`, `--card`, `--formats`, and `--deep` add file diffs, normalized card metadata diffs, and format/deep-analysis deltas. `capabilities` reports declared backend support and optional dependency availability. `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`; with `--checksum`, it also compares SHA256 values when present. `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
+`plan` is a dry-run planning command. It does not download files; it shows selected files, estimated size, cache hits/misses, and model asset categories. `card` fetches a README/model card and parses simple YAML-style frontmatter. `analyze` combines metadata, file summaries, weight-format detection, card presence, and largest-file reporting; `analyze --deep` adds filename/metadata-derived format byte counts, quantization hints, profile recommendations, and risk flags without downloading file contents. `score` is metadata/file-list based and does not download weights; it summarizes asset health across completeness, metadata, popularity, freshness, reproducibility, and safety. `scan` flags metadata, safety, and reproducibility risks based on file names and remote metadata; it does not execute code or inspect binary contents. `catalog scan` inventories local directories or the modely cache and is local/offline by default; `--score` and `--scan` enrichment require `--remote` because they call remote metadata APIs, and catalog never uploads or syncs anything. `resolve` is search-based and heuristic: it finds likely equivalent resources across sources, assigns confidence scores, and explains matching signals; use `compare --files --card --formats --deep` to verify whether two candidates are actually identical. `compare` performs a deep pairwise comparison of two explicit resources; `--files`, `--card`, `--formats`, and `--deep` add file diffs, normalized card metadata diffs, and format/deep-analysis deltas. `capabilities` reports declared backend support and optional dependency availability. `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`; with `--checksum`, it also compares SHA256 values when present. `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
 
 ### Watch Commands
 

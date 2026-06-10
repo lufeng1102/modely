@@ -138,6 +138,54 @@ class AssetAnalysis(_DataclassDictMixin):
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
+class ScoreBreakdown(_DataclassDictMixin):
+    """Component scores that make up an asset health score."""
+
+    completeness: int = 0
+    metadata: int = 0
+    popularity: int = 0
+    freshness: int = 0
+    reproducibility: int = 0
+    safety: int = 0
+
+@dataclass
+class AssetScore(_DataclassDictMixin):
+    """Health score for a modely asset."""
+
+    resource: str
+    score: int
+    grade: str
+    breakdown: ScoreBreakdown
+    strengths: List[str] = field(default_factory=list)
+    risks: List[str] = field(default_factory=list)
+    recommendations: List[str] = field(default_factory=list)
+    analysis: Optional[AssetAnalysis] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class ScanFinding(_DataclassDictMixin):
+    """A metadata, security, compliance, or reproducibility finding."""
+
+    id: str
+    severity: str
+    category: str
+    message: str
+    path: Optional[str] = None
+    recommendation: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class ScanResult(_DataclassDictMixin):
+    """Risk scan result for a modely asset."""
+
+    resource: str
+    risk_level: str
+    findings: List[ScanFinding] = field(default_factory=list)
+    summary: Dict[str, int] = field(default_factory=dict)
+    analysis: Optional[AssetAnalysis] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
 class ComparisonResult(_DataclassDictMixin):
     """Comparison between two analyzed assets."""
 
@@ -150,6 +198,31 @@ class ComparisonResult(_DataclassDictMixin):
     file_count_delta: int = 0
     summary: Dict[str, Any] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
+
+@dataclass
+class ResolveCandidate(_DataclassDictMixin):
+    """A likely equivalent resource candidate discovered during resolution."""
+
+    result: Dict[str, Any]
+    source: str
+    repo_type: str
+    repo_id: str
+    modely_uri: Optional[str] = None
+    confidence: float = 0.0
+    signals: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+@dataclass
+class ResolveResult(_DataclassDictMixin):
+    """Search-based resolution of a query to likely equivalent resources."""
+
+    query: str
+    canonical: Optional[str] = None
+    repo_type: str = "model"
+    candidates: List[ResolveCandidate] = field(default_factory=list)
+    groups: List[Dict[str, Any]] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class BenchmarkResult(_DataclassDictMixin):
@@ -192,6 +265,34 @@ class AssetDiff(_DataclassDictMixin):
     file_count_delta: int = 0
     category_delta: Dict[str, int] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
+
+@dataclass
+class CatalogEntry(_DataclassDictMixin):
+    """A local or cached asset entry in a catalog report."""
+
+    id: str
+    source: Optional[str] = None
+    repo_type: Optional[str] = None
+    repo_id: Optional[str] = None
+    revision: Optional[str] = None
+    local_path: str = ""
+    size: int = 0
+    file_count: int = 0
+    manifest_path: Optional[str] = None
+    lock_path: Optional[str] = None
+    score: Optional[Dict[str, Any]] = None
+    scan: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class CatalogReport(_DataclassDictMixin):
+    """Inventory report for local or cached modely assets."""
+
+    root: str
+    entries: List[CatalogEntry] = field(default_factory=list)
+    summary: Dict[str, Any] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class DownloadManifest(_DataclassDictMixin):

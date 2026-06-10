@@ -8,6 +8,7 @@ from typing import List
 
 from .files import filter_files, list_repo_files
 from .get import download_resource
+from .profiles import resolve_download_profile
 from .reliability import sha256_file
 from .types import DownloadManifest, FileInfo
 from .uri import format_modely_uri, parse_modely_uri
@@ -38,12 +39,14 @@ def read_manifest(path: str) -> DownloadManifest:
     )
 
 
-def create_lock(resource: str, *, revision=None, include=None, exclude=None, output="modely.lock", token=None) -> DownloadManifest:
+def create_lock(resource: str, *, revision=None, include=None, exclude=None, output="modely.lock", token=None,
+                endpoint=None, profile=None) -> DownloadManifest:
     """Create a lockfile describing the selected remote files."""
     ref = parse_modely_uri(resource)
     if revision:
         ref.revision = revision
-    files = filter_files(list_repo_files(ref, token=token), include, exclude)
+    include, exclude = resolve_download_profile(profile, include, exclude)
+    files = filter_files(list_repo_files(ref, token=token, endpoint=endpoint), include, exclude)
     manifest = DownloadManifest(
         source=ref.source,
         repo_type=ref.repo_type,
@@ -54,14 +57,28 @@ def create_lock(resource: str, *, revision=None, include=None, exclude=None, out
         exclude=exclude,
         metadata={
             "kind": "lock",
-            "schema_version": 1,
+            "schema_version": 2,
             "created_by": "modely-ai",
-            "file_count": len(files),
-            "total_size": sum(f.size or 0 for f in files),
+            "resource": format_modely_uri(ref),
+            "profile": profile,
+            "include": include,
+            "exclude": exclude,
         },
     )
+    manifest.metadata.update(lock_summary(manifest))
     write_manifest(manifest, output)
     return manifest
+
+
+def lock_summary(manifest: DownloadManifest) -> dict:
+    """Return summary fields for a lock or manifest."""
+    checksum_count = sum(1 for f in manifest.files if f.sha256)
+    return {
+        "file_count": len(manifest.files),
+        "total_size": sum(f.size or 0 for f in manifest.files),
+        "checksum_count": checksum_count,
+        "missing_checksum_count": len(manifest.files) - checksum_count,
+    }
 
 
 def install_lock(lockfile: str, *, local_dir=None, cache_dir=None, token=None, force_download=False):
