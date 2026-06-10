@@ -27,5 +27,9 @@ def search_kaggle(keyword=None, *, repo_type="dataset", limit=20):
             created_at=str(getattr(item, "dateCreated", "")) or None,
             tags=[str(t) for t in (getattr(item, "tags", None) or [])],
             description=getattr(item, "subtitle", None) or getattr(item, "description", None),
+            name=title,
+            stars=getattr(item, "voteCount", 0) or 0,
+            size_bytes=getattr(item, "totalBytes", 0) or 0,
+            metadata={"backend": "kaggle-api"},
         ))
     return results

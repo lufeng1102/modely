@@ -102,6 +102,9 @@ def search_github(
                 tags=item.get("topics") or [],
                 license=license_info.get("spdx_id"),
                 description=item.get("description"),
+                stars=item.get("stargazers_count", 0) or 0,
+                forks=item.get("forks_count", 0) or 0,
+                metadata={"backend": "github-rest", "open_issues": item.get("open_issues_count", 0) or 0},
             )
             output.append(result)
         except Exception:

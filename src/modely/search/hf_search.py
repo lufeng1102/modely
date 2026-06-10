@@ -91,6 +91,8 @@ def search_huggingface(
                 tags=tags,
                 license=getattr(item, "license", None),
                 description=getattr(item, "description", None),
+                size_bytes=_siblings_size(getattr(item, "siblings", None)),
+                metadata={"backend": "huggingface_hub"},
             )
             output.append(result)
 
@@ -105,3 +107,13 @@ def search_huggingface(
         print(f"Warning: Hugging Face search failed: {e}", file=sys.stderr)
 
     return output
+
+
+def _siblings_size(siblings) -> int:
+    """Best-effort total size from HF sibling metadata."""
+    total = 0
+    for sibling in siblings or []:
+        size = getattr(sibling, "size", None)
+        if isinstance(size, int):
+            total += size
+    return total

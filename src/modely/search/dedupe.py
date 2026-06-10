@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict
 from typing import List
 
 from .types import SearchResult
@@ -46,8 +45,8 @@ def format_grouped_json(groups: list[dict]) -> str:
             "key": group["key"],
             "sources": group["sources"],
             "count": group["count"],
-            "top": asdict(group["top"]) if group.get("top") else None,
-            "results": [asdict(r) for r in group["results"]],
+            "top": group["top"].to_dict() if group.get("top") else None,
+            "results": [r.to_dict() for r in group["results"]],
         }
     return json.dumps([serialize(g) for g in groups], indent=2, ensure_ascii=False)
 

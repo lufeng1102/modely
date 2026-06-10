@@ -179,6 +179,7 @@ modely-ai get hf://models/gpt2 --file config.json
 modely-ai get Qwen/Qwen2.5-7B --source auto --prefer ms,hf --fallback
 modely-ai get Qwen/Qwen2.5-7B --source auto --prefer fastest --fallback --profile inference
 modely-ai get hf://models/gpt2 --file config.json --retries 5 --timeout 30 --no-resume
+modely-ai get hf://models/gpt2 --file config.json --checksum
 modely-ai get github://owner/repo --include "examples/*"
 
 # Source endpoint discovery/probing and declared backend capabilities
@@ -204,7 +205,8 @@ modely-ai validate-lock -f modely.lock --local-dir ./models/gpt2 --checksum
 
 # Download-only local sync/mirror (no upload)
 modely-ai sync hf://models/gpt2 --local-dir ./mirror/gpt2 --include "*.json"
-modely-ai mirror ms://models/AI-ModelScope/gpt2 --local-dir ./mirror/ms-gpt2
+modely-ai sync hf://models/gpt2 --local-dir ./mirror/gpt2 --report sync-report.json --analyze --deep
+modely-ai mirror ms://models/AI-ModelScope/gpt2 --local-dir ./mirror/ms-gpt2 --report mirror-report.json --compare-to hf://models/gpt2 --deep
 ```
 
 Token resolution order is: explicit `--token`, environment variables (`HF_TOKEN`, `HUGGINGFACE_TOKEN`, `MODELSCOPE_TOKEN`, `GITHUB_TOKEN`), then tokens saved in `~/.modely/config.json`. Use `login --stdin` to avoid putting tokens in shell history; saved token config files are chmodded to `0600` on supported systems.
@@ -217,6 +219,8 @@ Download profiles provide common file-selection presets across `files`, `plan`, 
 - `inference`: config/tokenizer plus common inference weight formats such as `.safetensors` and `.gguf`
 
 `plan` is a download preview: it lists the selected files, estimated total size, cache hits/misses, and file categories without downloading. `sources probe` performs lightweight endpoint checks for availability/latency; `--prefer fastest` uses these probes to rank candidate sources, not to benchmark full download throughput.
+
+`get --checksum` verifies downloaded files when the remote file listing exposes SHA256 metadata. Missing remote SHA256 values are treated as skipped checksum checks rather than failures, while local missing files or mismatched hashes fail the command. Retry handling skips non-retryable permanent failures such as 401/403/404 and invalid revisions, but still retries transient timeouts, rate limits, and 5xx/network failures.
 
 #### Search Models and Datasets
 
@@ -255,6 +259,7 @@ modely-ai search qwen --sort lastModified --direction desc
 
 # JSON output for scripting
 modely-ai search gpt2 --source hf --json | jq '.[].id'
+modely-ai search qwen --source all --json | jq '.[].modely_uri'
 
 # Search all supported platforms simultaneously
 modely-ai search qwen --source all
@@ -267,7 +272,7 @@ modely-ai search qwen --source all --dedupe
 modely-ai search qwen --source hf --compare
 ```
 
-Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. The keyword argument is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads. Kaggle search is best-effort and requires the Kaggle package/credentials to be configured in the local environment.
+Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. JSON output uses a stable cross-source schema with fields such as `id`, `source`, `repo_type`, `modely_uri`, `name`, `summary`, `downloads`, `likes`, `stars`, `forks`, `size_bytes`, tags, license, and source-specific `metadata`. The keyword argument is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads. Kaggle search is best-effort and requires the Kaggle package/credentials to be configured in the local environment.
 
 
 

@@ -1,7 +1,6 @@
 """Display formatting for modely-ai search results."""
 
 import json
-from dataclasses import asdict
 from typing import List
 
 from .types import SearchResult
@@ -86,7 +85,6 @@ def format_json(results: List[SearchResult]) -> str:
     """Format search results as pretty-printed JSON."""
 
     def _serialize(r: SearchResult) -> dict:
-        d = asdict(r)
-        return d
+        return r.to_dict()
 
     return json.dumps([_serialize(r) for r in results], indent=2, ensure_ascii=False)

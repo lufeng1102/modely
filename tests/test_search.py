@@ -44,6 +44,8 @@ class TestSearchResult:
         assert r.downloads == 0
         assert r.likes == 0
         assert r.tags == []
+        assert r.name == "b"
+        assert r.modely_uri == "hf://models/a/b"
 
     def test_full_fields(self):
         r = SearchResult(
@@ -63,6 +65,8 @@ class TestSearchResult:
         )
         assert r.author == "author1"
         assert r.downloads == 100
+        assert r.summary == "desc"
+        assert r.stars == 10
 
 
 # ── Display ─────────────────────────────────────────────────────
@@ -124,6 +128,8 @@ class TestFormatJson:
         parsed = json.loads(j)
         assert parsed[0]["id"] == "a/b"
         assert parsed[0]["source"] == "hf"
+        assert parsed[0]["modely_uri"] == "hf://models/a/b"
+        assert "metadata" in parsed[0]
 
     def test_empty(self):
         assert format_json([]) == "[]"

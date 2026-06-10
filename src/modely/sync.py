@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
+
 from .get import download_resource
 from .manifest import create_download_manifest
 
 
 def sync_resource(resource: str, *, local_dir: str, revision=None, include=None, exclude=None,
                   token=None, cache_dir=None, manifest=None, checksum=False, force_download=False,
-                  source="auto", prefer="ms,hf,github", profile=None):
+                  source="auto", prefer="ms,hf,github", profile=None, report=None,
+                  analyze=False, compare_to=None, deep=False):
     """Ensure a remote resource is materialized locally. No upload is performed."""
     path = download_resource(
         resource,
@@ -23,8 +26,50 @@ def sync_resource(resource: str, *, local_dir: str, revision=None, include=None,
         fallback=True,
         force_download=force_download,
         profile=profile,
+        checksum=checksum,
     )
+    manifest_obj = None
+    normalized_resource = resource if "://" in resource else f"hf://models/{resource}"
     if manifest:
-        create_download_manifest(resource if "://" in resource else f"hf://models/{resource}", path,
-                                 include=include, exclude=exclude, checksum=checksum, output=manifest)
+        manifest_obj = create_download_manifest(normalized_resource, path,
+                                                include=include, exclude=exclude, checksum=checksum, output=manifest)
+    if report:
+        if manifest_obj is None:
+            manifest_obj = create_download_manifest(normalized_resource, path,
+                                                    include=include, exclude=exclude, checksum=checksum)
+        payload = _build_sync_report(
+            normalized_resource,
+            path,
+            manifest_obj=manifest_obj,
+            revision=revision,
+            token=token,
+            analyze=analyze,
+            compare_to=compare_to,
+            deep=deep,
+        )
+        with open(report, "w") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
     return path
+
+
+def _build_sync_report(resource: str, local_path: str, *, manifest_obj=None, revision=None,
+                       token=None, analyze=False, compare_to=None, deep=False) -> dict:
+    payload = {
+        "resource": resource,
+        "local_path": local_path,
+        "status": "ok",
+        "manifest": manifest_obj.to_dict() if manifest_obj else None,
+        "warnings": [],
+    }
+    if analyze:
+        from .analyze import analyze_resource
+        analysis = analyze_resource(resource, revision=revision, token=token, deep=deep)
+        payload["analysis"] = analysis.to_dict()
+        payload["warnings"].extend(analysis.warnings)
+    if compare_to:
+        from .compare import compare_resources
+        comparison = compare_resources(resource, compare_to, revision_left=revision, token=token,
+                                       include_files=True, include_card=True, include_formats=True, deep=deep)
+        payload["comparison"] = comparison.to_dict()
+        payload["warnings"].extend(comparison.warnings)
+    return payload

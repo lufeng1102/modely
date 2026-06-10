@@ -100,6 +100,8 @@ def _parse_model_item(item: Dict) -> SearchResult:
         tags=tags,
         license=item.get("License"),
         description=item.get("Description") or item.get("ChineseName"),
+        stars=likes or 0,
+        metadata={"backend": "modelscope", "raw_id": item.get("Id")},
     )
 
 
@@ -127,6 +129,8 @@ def _parse_dataset_item(item: Dict) -> SearchResult:
         tags=tags,
         license=item.get("license"),
         description=item.get("description") or item.get("display_name"),
+        stars=item.get("likes", 0) or 0,
+        metadata={"backend": "modelscope"},
     )
 
 

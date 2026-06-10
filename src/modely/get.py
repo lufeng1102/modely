@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List, Optional
 
 from .auth import get_token
 from .profiles import resolve_download_profile
-from .reliability import diagnose_download_error, normalize_download_options, retry_call
+from .reliability import checksum_status, diagnose_download_error, normalize_download_options, retry_call
 from .types import RepoRef
 from .uri import normalize_repo_type, normalize_source, parse_modely_uri
 
@@ -93,14 +94,15 @@ def _download_ref(ref: RepoRef, *, cache_dir=None, local_dir=None, token=None, i
     if ref.source == "hf":
         from .hf import hf_file_download, snapshot_download
         if ref.path:
-            return retry_call(
+            result = retry_call(
                 lambda: hf_file_download(ref.repo_id, ref.path, repo_type=ref.repo_type, revision=ref.revision or "main",
                                          cache_dir=cache_dir, local_dir=local_dir, token=token,
                                          force_download=force_download, resume_download=options.resume),
                 retries=options.retries,
                 label=f"hf:{ref.repo_id}/{ref.path}",
             )
-        return retry_call(
+            return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
+        result = retry_call(
             lambda: snapshot_download(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision or "main",
                                       cache_dir=cache_dir, local_dir=local_dir, token=token,
                                       allow_patterns=include, ignore_patterns=exclude,
@@ -108,52 +110,109 @@ def _download_ref(ref: RepoRef, *, cache_dir=None, local_dir=None, token=None, i
             retries=options.retries,
             label=f"hf:{ref.repo_id}",
         )
+        return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
     if ref.source == "ms":
         from .modelscope import dataset_file_download, model_file_download, snapshot_download
         if ref.path:
             if ref.repo_type == "dataset":
-                return retry_call(
+                result = retry_call(
                     lambda: dataset_file_download(ref.repo_id, ref.path, revision=ref.revision, cache_dir=cache_dir,
                                                   local_dir=local_dir, token=token, backend=backend),
                     retries=options.retries,
                     label=f"ms:{ref.repo_id}/{ref.path}",
                 )
-            return retry_call(
+                return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
+            result = retry_call(
                 lambda: model_file_download(ref.repo_id, ref.path, revision=ref.revision, cache_dir=cache_dir,
                                             local_dir=local_dir, token=token, backend=backend),
                 retries=options.retries,
                 label=f"ms:{ref.repo_id}/{ref.path}",
             )
-        return retry_call(
+            return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
+        result = retry_call(
             lambda: snapshot_download(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision, cache_dir=cache_dir,
                                       local_dir=local_dir, token=token, force_download=force_download,
                                       allow_patterns=include, ignore_patterns=exclude, backend=backend),
             retries=options.retries,
             label=f"ms:{ref.repo_id}",
         )
+        return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
     if ref.source == "github":
         from .github import github_file_download, github_clone
         if ref.path:
-            return retry_call(
+            result = retry_call(
                 lambda: github_file_download(ref.repo_id, ref.path, revision=ref.revision or "main", cache_dir=cache_dir,
                                              local_dir=local_dir, token=token, force_download=force_download,
                                              timeout=options.timeout),
                 retries=options.retries,
                 label=f"github:{ref.repo_id}/{ref.path}",
             )
-        return retry_call(
+            return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
+        result = retry_call(
             lambda: github_clone(ref.repo_id, revision=ref.revision or "main", cache_dir=cache_dir, local_dir=local_dir,
                                  token=token, with_lfs=with_lfs, force_download=force_download,
                                  allow_patterns=include, ignore_patterns=exclude),
             retries=options.retries,
             label=f"github:{ref.repo_id}",
         )
+        return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
     if ref.source == "kaggle":
         from .kaggle import kaggle_download
-        return retry_call(
+        result = retry_call(
             lambda: kaggle_download(ref.repo_id, repo_type=ref.repo_type, file=ref.path,
                                     local_dir=local_dir, cache_dir=cache_dir, force_download=force_download),
             retries=options.retries,
             label=f"kaggle:{ref.repo_id}",
         )
+        return _finalize_download(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
     raise ValueError(f"Unsupported source: {ref.source}")
+
+
+def _finalize_download(result, ref: RepoRef, *, include=None, exclude=None, token=None, endpoint=None, options=None):
+    """Run post-download checks and return the original backend result."""
+    _verify_download_checksums(result, ref, include=include, exclude=exclude, token=token, endpoint=endpoint, options=options)
+    return result
+
+
+def _verify_download_checksums(result, ref: RepoRef, *, include=None, exclude=None, token=None, endpoint=None, options=None) -> list[dict]:
+    """Verify downloaded files when checksum mode is enabled."""
+    if not options or not options.checksum:
+        return []
+
+    from .files import filter_files, list_repo_files
+
+    remote_files = list_repo_files(ref, token=token, endpoint=endpoint)
+    if ref.path:
+        remote_files = [f for f in remote_files if f.path == ref.path]
+    else:
+        remote_files = filter_files(remote_files, include, exclude)
+
+    statuses = []
+    mismatches = []
+    missing_files = []
+    for remote in remote_files:
+        local_path = _local_download_path(result, remote.path, single_file=bool(ref.path))
+        if not local_path or not local_path.exists():
+            missing_files.append(remote.path)
+            continue
+        status = checksum_status(str(local_path), remote.sha256)
+        statuses.append(status.to_dict())
+        if not status.ok:
+            mismatches.append(status)
+
+    if missing_files:
+        raise Exception(f"Checksum verification failed; missing downloaded file(s): {', '.join(missing_files[:10])}")
+    if mismatches:
+        details = ", ".join(f"{s.path}: expected {s.expected}, got {s.actual}" for s in mismatches[:10])
+        raise Exception(f"Checksum verification failed: {details}")
+    return statuses
+
+
+def _local_download_path(result, remote_path: str, *, single_file: bool) -> Optional[Path]:
+    """Map a backend download result and remote path to a local path."""
+    if not result:
+        return None
+    root = Path(result)
+    if single_file:
+        return root
+    return root / remote_path

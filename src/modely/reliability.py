@@ -21,6 +21,28 @@ class DownloadOptions:
     max_workers: Optional[int] = None
 
 
+@dataclass
+class ChecksumStatus:
+    """Result of a checksum verification attempt."""
+
+    path: str
+    ok: bool
+    expected: Optional[str] = None
+    actual: Optional[str] = None
+    skipped: bool = False
+    reason: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "path": self.path,
+            "ok": self.ok,
+            "expected": self.expected,
+            "actual": self.actual,
+            "skipped": self.skipped,
+            "reason": self.reason,
+        }
+
+
 def normalize_download_options(
     *,
     retries: Optional[int] = None,
@@ -49,10 +71,57 @@ def retry_call(fn: Callable[[], T], *, retries: int = 3, label: str = "operation
             return fn()
         except Exception as exc:  # noqa: PERF203 - intentional retry boundary
             last_error = exc
+            if is_permanent_download_error(exc):
+                raise Exception(f"{label} failed with non-retryable error: {exc}") from exc
             if attempt >= retries:
                 break
             time.sleep(min(2 ** attempt, 8) * 0.1)
     raise Exception(f"{label} failed after {attempts} attempt(s): {last_error}") from last_error
+
+
+def is_permanent_download_error(exc: Exception) -> bool:
+    """Return whether an exception represents a non-retryable download failure."""
+    status_code = _status_code(exc)
+    if status_code in {400, 401, 403, 404}:
+        return True
+    if status_code == 429 or (status_code is not None and status_code >= 500):
+        return False
+
+    lower = str(exc).lower()
+    transient_markers = (
+        "429",
+        "rate limit",
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "connection reset",
+        "connection aborted",
+        "connectionerror",
+        "connection error",
+        "502",
+        "503",
+        "504",
+    )
+    if any(marker in lower for marker in transient_markers):
+        return False
+
+    permanent_markers = (
+        "400",
+        "bad request",
+        "401",
+        "unauthorized",
+        "403",
+        "forbidden",
+        "gated",
+        "license not accepted",
+        "404",
+        "not found",
+        "invalid repo",
+        "invalid repository",
+        "invalid revision",
+        "revision not found",
+    )
+    return any(marker in lower for marker in permanent_markers)
 
 
 def diagnose_download_error(source: str, exc: Exception) -> str:
@@ -87,3 +156,20 @@ def sha256_file(path: str) -> str:
 def verify_sha256(path: str, expected: str) -> bool:
     """Return whether a file SHA256 digest matches the expected value."""
     return sha256_file(path).lower() == expected.lower()
+
+
+def checksum_status(path: str, expected: Optional[str]) -> ChecksumStatus:
+    """Return checksum verification status for a local path."""
+    if not expected:
+        return ChecksumStatus(path=path, ok=True, skipped=True, reason="missing-expected-sha256")
+    actual = sha256_file(path)
+    return ChecksumStatus(path=path, ok=actual.lower() == expected.lower(), expected=expected, actual=actual)
+
+
+def _status_code(exc: Exception) -> Optional[int]:
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return status
+    status = getattr(exc, "status_code", None)
+    return status if isinstance(status, int) else None

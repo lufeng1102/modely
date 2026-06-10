@@ -310,6 +310,10 @@ def main():
         p.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
         p.add_argument('--prefer', default='ms,hf,github')
         p.add_argument('--profile', choices=list(PROFILES), default=None)
+        p.add_argument('--report', default=None, help='Write a JSON sync/mirror report')
+        p.add_argument('--analyze', action='store_true', help='Include remote asset analysis in the report')
+        p.add_argument('--compare-to', default=None, help='Compare the synced resource to another modely URI in the report')
+        p.add_argument('--deep', action='store_true', help='Use deep analysis for report analysis/comparison')
 
     # Watch subcommand
     watch_parser = subparsers.add_parser("watch", help="Watch repositories and download updates")
@@ -692,7 +696,9 @@ def main():
                                    include=args.include, exclude=args.exclude, token=args.token,
                                    cache_dir=args.cache_dir, manifest=args.manifest,
                                    checksum=args.checksum, force_download=args.force_download,
-                                   source=args.source, prefer=args.prefer, profile=args.profile)
+                                   source=args.source, prefer=args.prefer, profile=args.profile,
+                                   report=args.report, analyze=args.analyze,
+                                   compare_to=args.compare_to, deep=args.deep)
             print(f"Synced to: {result}")
         except Exception as e:
             print(f"Error: {e}")
