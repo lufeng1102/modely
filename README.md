@@ -713,13 +713,14 @@ Common options:
 ### Watch Commands
 
 ```bash
-modely-ai watch <init|run|list|install|status|uninstall> [OPTIONS]
+modely-ai watch <init|run|list|drift|install|status|uninstall> [OPTIONS]
 ```
 
 Options:
 - `init --config FILE --force`: Create a JSON watch config template
 - `run --config FILE`: Check configured targets once and download changed repositories
 - `list --config FILE`: Show configured targets and their last known state
+- `drift --config FILE --json`: Check configured targets for remote drift without downloading or updating state
 - `install --config FILE --every {day,week} --time HH:MM --weekday mon`: Install a crontab job
 - `status --config FILE`: Show the installed crontab job
 - `uninstall --config FILE`: Remove the installed crontab job

@@ -10,7 +10,7 @@
   - Verify: `git diff --check`
   - Files: `tasks/plan.md`, `tasks/todo.md`
 
-- [ ] Task: Confirm CLI/docs alignment
+- [x] Task: Confirm CLI/docs alignment
   - Acceptance: README and `docs/specs/aggregate-governance.md` command examples match current parser flags for governance commands.
   - Verify: `PYTHONPATH=src modely-ai <command> --help` for doctor, choose, catalog gate, verify-mirror, report, benchmark, cache dedupe, watch drift.
   - Files: `README.md`, `docs/specs/aggregate-governance.md` if mismatches are found
