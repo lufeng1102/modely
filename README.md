@@ -21,17 +21,18 @@ modely-ai is designed as a cross-platform AI model asset manager rather than a s
 - 🔍 **Model discovery**: Search models, datasets, and AI/ML repositories by name, task type, date, and more
 - 🧭 **Cross-source resolution**: Resolve likely equivalent models/datasets across platforms with confidence signals
 - 📋 **Metadata, planning, and file analysis**: Query repository info, list files, summarize asset categories, preview downloads, and create lockfiles
-- 🧩 **Cross-platform analysis and comparison**: Resolve likely equivalent resources, parse cards, analyze model assets, score health, scan metadata/security risks, compare repositories, and group search results across sources
-- 🌐 **Source probing and fallback**: Probe Hugging Face, HF mirrors, ModelScope, GitHub, and Kaggle endpoints before downloading
+- 🧩 **Cross-platform analysis and comparison**: Resolve likely equivalent resources, parse cards, analyze model assets, score health, scan metadata/security risks, compare repositories, verify mirrors, and group search results across sources
+- 🩺 **Aggregate governance commands**: Use `doctor`, `choose`, `catalog gate`, and `report` to turn cross-source metadata into adoption decisions and CI gates
+- 🌐 **Source probing and fallback**: Probe Hugging Face, HF mirrors, ModelScope, GitHub, and Kaggle endpoints before downloading, record fallback sources in lockfiles, and install with fallback source order
 - ⚡ **Progress tracking**: Real-time download progress with tqdm
 - 🔄 **Resumable downloads**: Resume interrupted downloads automatically
 - 📁 **Flexible options**: Download entire repositories, specific files, release assets, or filtered file sets
 - 🔐 **Authentication support**: Access private models and datasets with explicit, stdin, environment, or saved tokens
 - 📦 **Official SDKs**: Uses `huggingface-hub` official SDK and optional ModelScope official SDK support
 - 📦 **Minimal dependencies**: Only requires `requests`, `tqdm`, and `huggingface-hub`
-- 💾 **Smart caching**: Avoid duplicate downloads with unified cache system
-- 🗂️ **Local asset catalog**: Inventory local directories or modely cache entries with optional score/scan enrichment
-- 🗂️ **Cache management**: CLI commands to view, list, and clean cache
+- 💾 **Smart caching**: Avoid duplicate downloads with unified cache system and dry-run duplicate blob reporting
+- 🗂️ **Local asset catalog**: Inventory local directories or modely cache entries with optional score/scan enrichment, snapshots, diffs, exports, and policy gates
+- 🗂️ **Cache management**: CLI commands to view, list, clean, configure, and inspect duplicate cache files
 
 ## Installation
 
@@ -49,26 +50,42 @@ modely-ai provides a command-line interface with subcommands for downloading (`h
 
 ### Aggregation Workflows
 
+See also the long-lived specification for these governance features: [`docs/specs/aggregate-governance.md`](docs/specs/aggregate-governance.md).
+
 modely-ai's most useful workflows combine multiple commands into cross-platform asset decisions:
 
 ```bash
-# 1. Find likely equivalent resources across platforms
+# 1. Diagnose a model or query in one command
+modely-ai doctor qwen2.5-7b-instruct --json
+
+# 2. Choose the best candidate for a strategy
+modely-ai choose qwen2.5-7b-instruct --strategy safest --json
+
+# 3. Find likely equivalent resources across platforms
 modely-ai resolve qwen2.5-7b-instruct --source all --json
 
-# 2. Verify whether two candidates are actually aligned
+# 4. Verify whether two candidates are actually aligned
 modely-ai compare hf://models/Qwen/Qwen2.5-7B-Instruct ms://models/qwen/Qwen2.5-7B-Instruct --files --card --formats --deep
+modely-ai verify-mirror hf://models/Qwen/Qwen2.5-7B-Instruct ms://models/qwen/Qwen2.5-7B-Instruct --json
 
-# 3. Evaluate health and risks before adoption
+# 5. Evaluate health and risks before adoption
 modely-ai score hf://models/Qwen/Qwen2.5-7B-Instruct
 modely-ai scan hf://models/Qwen/Qwen2.5-7B-Instruct
 
-# 4. Lock a reproducible selection and install it locally
-modely-ai lock hf://models/Qwen/Qwen2.5-7B-Instruct --profile inference --output modely.lock
-modely-ai install -f modely.lock --local-dir ./models/qwen2.5-7b
+# 6. Lock a reproducible selection with fallback metadata and install it locally
+modely-ai lock hf://models/Qwen/Qwen2.5-7B-Instruct --profile inference --alternatives hf,ms --output modely.lock
+modely-ai install -f modely.lock --fallback --prefer ms,hf --local-dir ./models/qwen2.5-7b
 modely-ai validate-lock -f modely.lock --local-dir ./models/qwen2.5-7b --checksum
 
-# 5. Inventory downloaded assets for governance/reporting
-modely-ai catalog scan ./models --json
+# 7. Inventory and gate downloaded assets for governance/reporting
+modely-ai catalog scan ./models --score --scan --output catalog.json
+modely-ai catalog gate catalog.json --fail-on high --json
+modely-ai catalog export catalog.json --output catalog.csv
+
+# 8. Generate reports and inspect source/cache health
+modely-ai report ./models/qwen2.5-7b --format markdown
+modely-ai benchmark qwen2.5-7b --source hf,ms --json
+modely-ai cache dedupe --dry-run --json
 ```
 
 #### Download from Hugging Face
@@ -245,8 +262,9 @@ modely-ai logout github
 
 # Reproducible local installs
 modely-ai lock hf://models/gpt2 --include "*.json" --output modely.lock
-modely-ai lock hf://models/gpt2 --profile minimal --output modely.lock --json
+modely-ai lock hf://models/gpt2 --profile minimal --alternatives hf,ms --output modely.lock --json
 modely-ai install -f modely.lock --local-dir ./models/gpt2
+modely-ai install -f modely.lock --fallback --prefer ms,hf --local-dir ./models/gpt2
 modely-ai validate-lock -f modely.lock --local-dir ./models/gpt2 --checksum
 
 # Catalog local assets or modely cache
@@ -254,7 +272,21 @@ modely-ai catalog scan ./models
 modely-ai catalog scan ./models --json
 modely-ai catalog scan --cache --cache-dir ~/.cache/modely
 modely-ai catalog scan ./models --output catalog.json
-modely-ai catalog scan ./models --score --scan --remote --json
+modely-ai catalog scan ./models --score --scan --json
+modely-ai catalog scan ./models --snapshot --history-dir .modely/catalog
+modely-ai catalog history --dir .modely/catalog
+modely-ai catalog diff old-catalog.json new-catalog.json --json
+modely-ai catalog export catalog.json --output catalog.csv
+modely-ai catalog gate catalog.json --fail-on medium --json
+
+# Aggregate governance and reporting
+modely-ai doctor gpt2 --json
+modely-ai choose qwen2.5-7b --strategy safest --json
+modely-ai verify-mirror hf://models/gpt2 ms://models/AI-ModelScope/gpt2 --json
+modely-ai report hf://models/gpt2 --format markdown
+modely-ai report ./models/gpt2 --format html --output gpt2-report.html
+modely-ai benchmark gpt2 --source hf,ms --json
+modely-ai cache dedupe --dry-run --json
 
 # Download-only local sync/mirror (no upload)
 modely-ai sync hf://models/gpt2 --local-dir ./mirror/gpt2 --include "*.json"
@@ -647,10 +679,17 @@ modely-ai sources <list|probe> [OPTIONS]
 modely-ai login <hf|ms|github> (--token TOKEN | --stdin)
 modely-ai logout <hf|ms|github>
 modely-ai whoami <hf|ms|github>
-modely-ai lock <URI> [--profile PROFILE] [--output modely.lock] [--json]
-modely-ai catalog scan [ROOT] [--cache] [--score] [--scan] [--remote] [--json] [--output FILE]
+modely-ai lock <URI> [--profile PROFILE] [--alternatives hf,ms] [--output modely.lock] [--json]
 modely-ai validate-lock -f modely.lock [--local-dir DIR] [--checksum] [--json]
-modely-ai install -f modely.lock
+modely-ai install -f modely.lock [--fallback] [--prefer ms,hf] [--local-dir DIR]
+modely-ai catalog scan [ROOT] [--cache] [--score] [--scan] [--remote] [--json] [--output FILE]
+modely-ai catalog <diff|export|history|gate> [OPTIONS]
+modely-ai doctor <query-or-URI> [--source SOURCE] [--probe] [--json]
+modely-ai choose <query-or-URI> [--strategy STRATEGY] [--json]
+modely-ai verify-mirror <URI> <URI> [--no-deep] [--json]
+modely-ai report <URI-or-path> [--format markdown|html|json] [--output FILE]
+modely-ai benchmark [URI-or-query] [--source hf,ms] [--json]
+modely-ai cache dedupe --dry-run [--json]
 modely-ai sync <URI> --local-dir DIR
 modely-ai mirror <URI> --local-dir DIR
 ```
@@ -669,7 +708,7 @@ Common options:
 - `--timeout SECONDS`: Pass timeout controls to supported HTTP/probe backends.
 - `--no-resume`: Disable backend resume behavior where supported by `get`.
 
-`plan` is a dry-run planning command. It does not download files; it shows selected files, estimated size, cache hits/misses, and model asset categories. `card` fetches a README/model card and parses simple YAML-style frontmatter. `analyze` combines metadata, file summaries, weight-format detection, card presence, and largest-file reporting; `analyze --deep` adds filename/metadata-derived format byte counts, quantization hints, profile recommendations, and risk flags without downloading file contents. `score` is metadata/file-list based and does not download weights; it summarizes asset health across completeness, metadata, popularity, freshness, reproducibility, and safety. `scan` flags metadata, safety, and reproducibility risks based on file names and remote metadata; it does not execute code or inspect binary contents. `catalog scan` inventories local directories or the modely cache and is local/offline by default; `--score` and `--scan` enrichment require `--remote` because they call remote metadata APIs, and catalog never uploads or syncs anything. `resolve` is search-based and heuristic: it finds likely equivalent resources across sources, assigns confidence scores, and explains matching signals; use `compare --files --card --formats --deep` to verify whether two candidates are actually identical. `compare` performs a deep pairwise comparison of two explicit resources; `--files`, `--card`, `--formats`, and `--deep` add file diffs, normalized card metadata diffs, and format/deep-analysis deltas. `capabilities` reports declared backend support and optional dependency availability. `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`; with `--checksum`, it also compares SHA256 values when present. `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
+`plan` is a dry-run planning command. It does not download files; it shows selected files, estimated size, cache hits/misses, and model asset categories. `card` fetches a README/model card and parses simple YAML-style frontmatter. `analyze` combines metadata, file summaries, weight-format detection, card presence, and largest-file reporting; `analyze --deep` adds filename/metadata-derived format byte counts, quantization hints, profile recommendations, and risk flags without downloading file contents. `score` is metadata/file-list based and does not download weights; it summarizes asset health across completeness, metadata, popularity, freshness, reproducibility, and safety. `scan` flags metadata, safety, and reproducibility risks based on file names and remote metadata; it does not execute code or inspect binary contents. `catalog scan` inventories local directories or the modely cache and is local/offline by default; `--score` and `--scan` use local path enrichment by default, while `--remote` allows remote metadata/API enrichment for entries that have source metadata. `catalog gate` evaluates saved catalog scan summaries for CI policy decisions. `doctor` and `choose` compose resolve/score/scan/probe signals into recommendations. `verify-mirror` is a read-only comparison wrapper for mirror-equivalence checks. `report` renders markdown, HTML, or JSON reports for remote resources or local paths. `benchmark` performs lightweight source endpoint availability/latency checks; it is not a full bandwidth benchmark. `cache dedupe --dry-run` reports duplicate cache blobs without modifying files. `resolve` is search-based and heuristic: it finds likely equivalent resources across sources, assigns confidence scores, and explains matching signals; use `compare --files --card --formats --deep` to verify whether two candidates are actually identical. `compare` performs a deep pairwise comparison of two explicit resources; `--files`, `--card`, `--formats`, and `--deep` add file diffs, normalized card metadata diffs, and format/deep-analysis deltas. `capabilities` reports declared backend support and optional dependency availability. `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`; with `--checksum`, it also compares SHA256 values when present. `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
 
 ### Watch Commands
 
