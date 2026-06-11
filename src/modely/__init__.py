@@ -40,6 +40,7 @@ from .doctor import doctor_resource, print_doctor_report
 from .choose import choose_resource, print_choice
 from .report import create_resource_report
 from .benchmark import benchmark_sources, print_benchmark_results
+from .batch import create_batch_download_plan, print_batch_download_result, run_batch_download
 from .plan import create_download_plan, print_download_plan
 from .profiles import PROFILES, resolve_download_profile
 from .sources import list_source_profiles, print_probe_results, print_source_profiles, rank_sources
@@ -417,6 +418,45 @@ def main():
     benchmark_parser.add_argument('--url', default=None)
     benchmark_parser.add_argument('--timeout', type=float, default=5)
     benchmark_parser.add_argument('--json', action='store_true')
+
+    batch_parser = subparsers.add_parser("batch-download", help="Search by tags and batch download matching resources")
+    batch_parser.add_argument("keyword", nargs="?", default=None)
+    batch_parser.add_argument('--tag', action='append', required=True, help='Required tag; repeat for AND matching')
+    batch_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
+    batch_parser.add_argument('--repo-type', choices=['model', 'dataset'], default='model')
+    batch_parser.add_argument('--limit', type=int, default=20, help='Maximum matching resources to download')
+    batch_parser.add_argument('--search-limit', type=int, default=None, help='Maximum results to fetch per source before tag filtering')
+    batch_parser.add_argument('--task', default=None)
+    batch_parser.add_argument('--library', default=None)
+    batch_parser.add_argument('--license', default=None)
+    batch_parser.add_argument('--sort', choices=['downloads', 'lastModified', 'likes', 'created_at'], default='downloads')
+    batch_parser.add_argument('--direction', choices=['asc', 'desc'], default='desc')
+    batch_parser.add_argument('--author', default=None)
+    batch_parser.add_argument('--after', default=None)
+    batch_parser.add_argument('--before', default=None)
+    batch_parser.add_argument('--full', action='store_true')
+    batch_parser.add_argument('--local-dir', default=None)
+    batch_parser.add_argument('--cache-dir', default=None)
+    batch_parser.add_argument('--token', default=None)
+    batch_parser.add_argument('--include', nargs='+', default=None)
+    batch_parser.add_argument('--exclude', nargs='+', default=None)
+    batch_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    batch_parser.add_argument('--prefer', default='ms,hf,github')
+    batch_parser.add_argument('--fallback', action='store_true')
+    batch_parser.add_argument('--force-download', action='store_true')
+    batch_parser.add_argument('--backend', choices=['auto', 'official', 'lightweight'], default='auto')
+    batch_parser.add_argument('--with-lfs', action='store_true')
+    batch_parser.add_argument('--endpoint', default=None)
+    batch_parser.add_argument('--max-workers', type=int, default=None)
+    batch_parser.add_argument('--timeout', type=float, default=None)
+    batch_parser.add_argument('--retries', type=int, default=None)
+    batch_parser.add_argument('--checksum', action='store_true')
+    batch_parser.add_argument('--no-resume', action='store_true')
+    batch_parser.add_argument('--fail-fast', action='store_true')
+    batch_execute = batch_parser.add_mutually_exclusive_group()
+    batch_execute.add_argument('--yes', action='store_true', help='Execute downloads instead of dry-run')
+    batch_execute.add_argument('--execute', action='store_true', help='Execute downloads instead of dry-run')
+    batch_parser.add_argument('--json', action='store_true')
 
     sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
     mirror_parser = subparsers.add_parser("mirror", help="Alias for sync")
@@ -959,6 +999,55 @@ def main():
         try:
             candidates = None if args.sources == "all" else [s.strip() for s in args.sources.split(",") if s.strip()]
             print_benchmark_results(benchmark_sources(args.resource, candidates=candidates, url=args.url, timeout=args.timeout), as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "batch-download":
+        try:
+            plan = create_batch_download_plan(
+                args.keyword,
+                source=args.source,
+                repo_type=args.repo_type,
+                tags=args.tag,
+                limit=args.limit,
+                search_limit=args.search_limit,
+                task=args.task,
+                library=args.library,
+                license=args.license,
+                sort=args.sort,
+                direction=args.direction,
+                author=args.author,
+                after=args.after,
+                before=args.before,
+                full=args.full,
+            )
+            if args.yes or args.execute:
+                result = run_batch_download(
+                    plan,
+                    local_dir=args.local_dir,
+                    cache_dir=args.cache_dir,
+                    token=args.token,
+                    include=args.include,
+                    exclude=args.exclude,
+                    profile=args.profile,
+                    prefer=args.prefer,
+                    fallback=args.fallback,
+                    force_download=args.force_download,
+                    backend=args.backend,
+                    with_lfs=args.with_lfs,
+                    endpoint=args.endpoint,
+                    max_workers=args.max_workers,
+                    timeout=args.timeout,
+                    retries=args.retries,
+                    checksum=args.checksum,
+                    resume=not args.no_resume,
+                    fail_fast=args.fail_fast,
+                )
+                print_batch_download_result(result, as_json=args.json)
+                if not result["ok"]:
+                    sys.exit(1)
+            else:
+                print_batch_download_result(plan, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
