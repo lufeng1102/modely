@@ -12,12 +12,7 @@ from .search import SearchResult, search
 def filter_results_by_tags(results: Iterable[SearchResult], tags: Sequence[str]) -> list[SearchResult]:
     """Return results whose tags contain all requested tags, case-insensitively."""
     required = _normalize_tags(tags)
-    filtered: list[SearchResult] = []
-    for result in results:
-        available = {str(tag).strip().lower() for tag in (result.tags or []) if str(tag).strip()}
-        if required.issubset(available):
-            filtered.append(result)
-    return filtered
+    return [result for result in results if required.issubset(_normalize_tags(result.tags, required=False))]
 
 
 def create_batch_download_plan(
@@ -58,8 +53,7 @@ def create_batch_download_plan(
         full=full,
     )
     matched = filter_results_by_tags(fetched, required_tags) if required_tags else list(fetched)
-    if repo_type in {"model", "dataset"}:
-        matched = [result for result in matched if result.repo_type == repo_type]
+    matched = [result for result in matched if result.repo_type == repo_type]
     selected = matched[:limit]
     return {
         "dry_run": True,
@@ -127,9 +121,9 @@ def run_batch_download(
             results.append({**item, "ok": False, "path": None, "error": str(exc)})
             if fail_fast:
                 break
-    failed = sum(1 for item in results if not item["ok"])
-    summary = {"total": len(results), "succeeded": len(results) - failed, "failed": failed}
-    return {"ok": failed == 0, "dry_run": False, "plan": plan, "results": results, "summary": summary}
+    failed = [item for item in results if not item["ok"]]
+    summary = {"total": len(results), "succeeded": len(results) - len(failed), "failed": len(failed)}
+    return {"ok": not failed, "dry_run": False, "plan": plan, "results": results, "summary": summary}
 
 
 def print_batch_download_result(result: dict, *, as_json: bool = False) -> None:
