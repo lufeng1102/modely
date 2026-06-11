@@ -24,6 +24,7 @@ from modely.common.cache import (
     list_cache,
     clean_cache,
     cache_info,
+    find_duplicate_files,
     _format_size,
 )
 
@@ -237,6 +238,23 @@ class TestFormatSize:
 
     def test_gigabytes(self):
         assert _format_size(1024 ** 3) == "1.00 GB"
+
+
+
+def test_find_duplicate_files_reports_reclaimable_size(tmp_cache):
+    a = os.path.join(tmp_cache, "a.bin")
+    b_dir = os.path.join(tmp_cache, "nested")
+    os.makedirs(b_dir, exist_ok=True)
+    b = os.path.join(b_dir, "b.bin")
+    with open(a, "w") as f:
+        f.write("same")
+    with open(b, "w") as f:
+        f.write("same")
+
+    report = find_duplicate_files(tmp_cache)
+
+    assert len(report["duplicate_groups"]) == 1
+    assert report["reclaimable_size"] == 4
 
 
 class TestCacheInfo:

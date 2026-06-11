@@ -1,6 +1,6 @@
 """Unit tests for manifest and lock validation."""
 
-from modely.manifest import create_lock, lock_summary, read_manifest, validate_lock, write_manifest
+from modely.manifest import create_lock, install_lock, lock_summary, read_manifest, validate_lock, write_manifest
 from modely.types import DownloadManifest, FileInfo
 
 
@@ -57,6 +57,29 @@ def test_create_lock_resolves_profile_and_metadata(tmp_path, monkeypatch):
     assert manifest.metadata["checksum_count"] == 2
     assert all(f.path != "model.bin" for f in manifest.files)
 
+
+
+
+def test_create_lock_records_alternatives(tmp_path, monkeypatch):
+    monkeypatch.setattr("modely.manifest.list_repo_files", lambda *a, **k: [FileInfo("config.json", size=2)])
+    output = tmp_path / "modely.lock"
+
+    manifest = create_lock("hf://models/gpt2", alternatives="hf,ms", output=str(output))
+
+    assert manifest.metadata["alternatives"] == ["hf", "ms"]
+
+
+def test_install_lock_fallback_uses_alternatives(tmp_path, monkeypatch):
+    lock = tmp_path / "modely.lock"
+    write_manifest(DownloadManifest("hf", "model", "gpt2", metadata={"alternatives": ["ms", "hf"]}), str(lock))
+    captured = {}
+    monkeypatch.setattr("modely.manifest.download_resource", lambda resource, **kwargs: captured.update({"resource": resource, **kwargs}) or "/tmp/gpt2")
+
+    path = install_lock(str(lock), fallback=True)
+
+    assert path == "/tmp/gpt2"
+    assert captured["source"] == "auto"
+    assert captured["prefer"] == "ms,hf"
 
 def test_lock_summary_counts_checksums():
     manifest = DownloadManifest("hf", "model", "gpt2", files=[FileInfo("a", size=10, sha256="x"), FileInfo("b", size=5)])

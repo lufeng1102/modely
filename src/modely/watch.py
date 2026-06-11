@@ -385,6 +385,35 @@ def run_watch(config_path: Optional[str] = None) -> List[Dict]:
     return results
 
 
+def check_drift(config_path: Optional[str] = None) -> List[Dict]:
+    """Check configured targets for remote drift without downloading or updating state."""
+    config, _ = load_config(config_path)
+    state = load_state(config["state_file"])
+    results = []
+    for target in config["targets"]:
+        key = target_key(target)
+        previous = state.get(key, {})
+        try:
+            fingerprint = get_remote_fingerprint(target)
+            drifted = previous.get("fingerprint") != fingerprint
+            results.append({"key": key, "target": target, "status": "drifted" if drifted else "unchanged", "previous": previous.get("fingerprint"), "current": fingerprint})
+        except Exception as exc:
+            results.append({"key": key, "target": target, "status": "error", "error": str(exc), "previous": previous.get("fingerprint")})
+    return results
+
+
+def print_drift_results(results: List[Dict], *, as_json: bool = False) -> None:
+    """Print watch drift results."""
+    if as_json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return
+    if not results:
+        print("No watch targets configured.")
+        return
+    for result in results:
+        print(f"{result['status']} {result['key']}")
+
+
 def list_targets(config_path: Optional[str] = None) -> List[Dict]:
     config, _ = load_config(config_path)
     state = load_state(config["state_file"])
@@ -568,6 +597,10 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     list_parser = subparsers.add_parser("list", help="List watch targets and state")
     list_parser.add_argument("--config", default=None, help="Path to watch config")
 
+    drift_parser = subparsers.add_parser("drift", help="Check for remote drift without downloading")
+    drift_parser.add_argument("--config", default=None, help="Path to watch config")
+    drift_parser.add_argument("--json", action="store_true", help="Output drift results as JSON")
+
     install_parser = subparsers.add_parser("install", help="Install a crontab entry")
     install_parser.add_argument("--config", default=None, help="Path to watch config")
     install_parser.add_argument("--every", choices=["day", "week"], required=True, help="Run daily or weekly")
@@ -603,6 +636,8 @@ def main(args=None) -> None:
             _print_run_results(run_watch(parsed.config))
         elif command == "list":
             _print_list(list_targets(parsed.config))
+        elif command == "drift":
+            print_drift_results(check_drift(parsed.config), as_json=parsed.json)
         elif command == "install":
             entry = install_crontab(parsed.config, parsed.every, parsed.time, parsed.weekday)
             print(f"Installed watch cron: {entry}")

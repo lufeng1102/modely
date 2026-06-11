@@ -35,11 +35,16 @@ from .files import do_dry_run, format_file_size, list_repo_files, print_file_lis
 from .get import download_resource
 from .info import get_repo_info, print_repo_info
 from .manifest import create_download_manifest, create_lock, install_lock, print_lock_validation, validate_lock
+from .mirror import print_mirror_verification, verify_mirror
+from .doctor import doctor_resource, print_doctor_report
+from .choose import choose_resource, print_choice
+from .report import create_resource_report
+from .benchmark import benchmark_sources, print_benchmark_results
 from .plan import create_download_plan, print_download_plan
 from .profiles import PROFILES, resolve_download_profile
 from .sources import list_source_profiles, print_probe_results, print_source_profiles, rank_sources
 from .resolve import print_resolve_result, resolve_resource
-from .policy import evaluate_scan_policy, load_policy
+from .policy import evaluate_catalog_policy, evaluate_scan_policy, load_policy, print_catalog_policy_result
 from .scan import print_scan_result, scan_path, scan_resource
 from .score import print_asset_score, score_path, score_resource
 from .sync import sync_resource
@@ -128,6 +133,10 @@ def main():
     # modely cache config
     cache_config_parser = cache_subparsers.add_parser("config", help="Show or set cache directory")
     cache_config_parser.add_argument("--set", type=str, default=None, help="Set cache directory to this path")
+
+    cache_dedupe_parser = cache_subparsers.add_parser("dedupe", help="Report duplicate files in cache")
+    cache_dedupe_parser.add_argument("--dry-run", action="store_true", help="Report only; do not modify files")
+    cache_dedupe_parser.add_argument("--json", action="store_true")
 
     # Hugging Face subcommand
     hf_parser = subparsers.add_parser("hf", help="Download models from Hugging Face")
@@ -314,6 +323,7 @@ def main():
     lock_parser.add_argument('--endpoint', default=None)
     lock_parser.add_argument('--output', '-o', default='modely.lock')
     lock_parser.add_argument('--token', default=None)
+    lock_parser.add_argument('--alternatives', default=None, help='Comma-separated fallback source list to record in the lockfile')
     lock_parser.add_argument('--json', action='store_true')
 
     install_parser = subparsers.add_parser("install", help="Install from a modely lockfile")
@@ -322,6 +332,8 @@ def main():
     install_parser.add_argument('--cache-dir', default=None)
     install_parser.add_argument('--token', default=None)
     install_parser.add_argument('--force-download', action='store_true')
+    install_parser.add_argument('--fallback', action='store_true', help='Try alternate sources from lock metadata or --prefer')
+    install_parser.add_argument('--prefer', default=None, help='Comma-separated source order for fallback installs')
 
     validate_lock_parser = subparsers.add_parser("validate-lock", help="Validate a modely lockfile against local files")
     validate_lock_parser.add_argument('-f', '--file', required=True)
@@ -357,6 +369,54 @@ def main():
     catalog_history_parser = catalog_subparsers.add_parser("history", help="List catalog snapshots")
     catalog_history_parser.add_argument('--dir', default='.modely/catalog')
     catalog_history_parser.add_argument('--json', action='store_true')
+    catalog_gate_parser = catalog_subparsers.add_parser("gate", help="Evaluate a catalog report against scan policy")
+    catalog_gate_parser.add_argument("report")
+    catalog_gate_parser.add_argument('--fail-on', choices=['low', 'medium', 'high'], default=None)
+    catalog_gate_parser.add_argument('--policy', default=None)
+    catalog_gate_parser.add_argument('--json', action='store_true')
+
+    doctor_parser = subparsers.add_parser("doctor", help="Diagnose and recommend a modely resource")
+    doctor_parser.add_argument("query")
+    doctor_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
+    doctor_parser.add_argument('--repo-type', choices=['model', 'dataset', 'tool'], default='model')
+    doctor_parser.add_argument('--probe', action='store_true')
+    doctor_parser.add_argument('--limit', type=int, default=5)
+    doctor_parser.add_argument('--threshold', type=float, default=0.35)
+    doctor_parser.add_argument('--token', default=None)
+    doctor_parser.add_argument('--endpoint', default=None)
+    doctor_parser.add_argument('--json', action='store_true')
+
+    choose_parser = subparsers.add_parser("choose", help="Choose the best source for a resource query")
+    choose_parser.add_argument("query")
+    choose_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
+    choose_parser.add_argument('--repo-type', choices=['model', 'dataset', 'tool'], default='model')
+    choose_parser.add_argument('--strategy', choices=['balanced', 'safest', 'fastest', 'freshest'], default='balanced')
+    choose_parser.add_argument('--limit', type=int, default=5)
+    choose_parser.add_argument('--threshold', type=float, default=0.35)
+    choose_parser.add_argument('--token', default=None)
+    choose_parser.add_argument('--endpoint', default=None)
+    choose_parser.add_argument('--json', action='store_true')
+
+    mirror_verify_parser = subparsers.add_parser("verify-mirror", help="Verify two resources appear mirror-equivalent")
+    mirror_verify_parser.add_argument("left")
+    mirror_verify_parser.add_argument("right")
+    mirror_verify_parser.add_argument('--token', default=None)
+    mirror_verify_parser.add_argument('--no-deep', action='store_true')
+    mirror_verify_parser.add_argument('--json', action='store_true')
+
+    report_parser = subparsers.add_parser("report", help="Generate a resource report")
+    report_parser.add_argument("resource")
+    report_parser.add_argument('--format', choices=['markdown', 'html', 'json'], default='markdown')
+    report_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
+    report_parser.add_argument('--repo-type', choices=['model', 'dataset', 'tool'], default='model')
+    report_parser.add_argument('--output', '-o', default=None)
+
+    benchmark_parser = subparsers.add_parser("benchmark", help="Benchmark source endpoint availability")
+    benchmark_parser.add_argument("resource", nargs="?", default=None)
+    benchmark_parser.add_argument('--source', '--sources', dest='sources', default='all')
+    benchmark_parser.add_argument('--url', default=None)
+    benchmark_parser.add_argument('--timeout', type=float, default=5)
+    benchmark_parser.add_argument('--json', action='store_true')
 
     sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
     mirror_parser = subparsers.add_parser("mirror", help="Alias for sync")
@@ -781,7 +841,7 @@ def main():
         try:
             manifest = create_lock(args.resource, revision=args.revision, include=args.include,
                                    exclude=args.exclude, output=args.output, token=args.token,
-                                   profile=args.profile, endpoint=args.endpoint)
+                                   profile=args.profile, endpoint=args.endpoint, alternatives=args.alternatives)
             if args.json:
                 print(json.dumps(manifest.to_dict(), indent=2, ensure_ascii=False))
             else:
@@ -792,7 +852,8 @@ def main():
     elif args.command == "install":
         try:
             result = install_lock(args.file, local_dir=args.local_dir, cache_dir=args.cache_dir,
-                                  token=args.token, force_download=args.force_download)
+                                  token=args.token, force_download=args.force_download,
+                                  fallback=args.fallback, prefer=args.prefer)
             print(f"Installed to: {result}")
         except Exception as e:
             print(f"Error: {e}")
@@ -850,9 +911,54 @@ def main():
                             print(f"{item['path']} ({item['size']} bytes)")
                     else:
                         print("No catalog snapshots found.")
+            elif args.catalog_command == "gate":
+                result = evaluate_catalog_policy(read_catalog_report(args.report), fail_on=args.fail_on, policy=load_policy(args.policy))
+                print_catalog_policy_result(result, as_json=args.json)
+                if not result["ok"]:
+                    sys.exit(1)
             else:
                 print("Usage: modely catalog [scan|diff|export|history]")
                 sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "doctor":
+        try:
+            print_doctor_report(doctor_resource(args.query, source=args.source, repo_type=args.repo_type,
+                                                probe=args.probe, limit=args.limit, threshold=args.threshold,
+                                                token=args.token, endpoint=args.endpoint), as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "choose":
+        try:
+            print_choice(choose_resource(args.query, source=args.source, repo_type=args.repo_type,
+                                         strategy=args.strategy, limit=args.limit, threshold=args.threshold,
+                                         token=args.token, endpoint=args.endpoint), as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "verify-mirror":
+        try:
+            print_mirror_verification(verify_mirror(args.left, args.right, token=args.token, deep=not args.no_deep), as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "report":
+        try:
+            text = create_resource_report(args.resource, format=args.format, source=args.source, repo_type=args.repo_type)
+            if args.output:
+                with open(args.output, "w") as f:
+                    f.write(text)
+            else:
+                print(text, end="")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "benchmark":
+        try:
+            candidates = None if args.sources == "all" else [s.strip() for s in args.sources.split(",") if s.strip()]
+            print_benchmark_results(benchmark_sources(args.resource, candidates=candidates, url=args.url, timeout=args.timeout), as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -903,6 +1009,9 @@ def cache_main(args=None):
         clean_parser.add_argument("repo_id", nargs="?", default=None)
         config_parser = subparsers.add_parser("config")
         config_parser.add_argument("--set", type=str, default=None)
+        dedupe_parser = subparsers.add_parser("dedupe")
+        dedupe_parser.add_argument("--dry-run", action="store_true")
+        dedupe_parser.add_argument("--json", action="store_true")
 
         args = parser.parse_args()
 
@@ -947,8 +1056,11 @@ def cache_main(args=None):
             if "cache_dir" in config:
                 print(f"Configured in: {cache.CONFIG_FILE}")
 
+    elif args.cache_command == "dedupe":
+        cache.print_dedupe_report(cache.find_duplicate_files(cache_dir), as_json=getattr(args, "json", False))
+
     else:
-        print("Usage: modely cache [info|list|clean|config]")
+        print("Usage: modely cache [info|list|clean|config|dedupe]")
         sys.exit(1)
 
 

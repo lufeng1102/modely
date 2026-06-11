@@ -10,7 +10,7 @@ from .files import filter_files, list_repo_files
 from .get import download_resource
 from .profiles import resolve_download_profile
 from .reliability import sha256_file
-from .types import DownloadManifest, FileInfo
+from .types import DownloadManifest, FileInfo, RepoRef
 from .uri import format_modely_uri, parse_modely_uri
 
 
@@ -40,7 +40,7 @@ def read_manifest(path: str) -> DownloadManifest:
 
 
 def create_lock(resource: str, *, revision=None, include=None, exclude=None, output="modely.lock", token=None,
-                endpoint=None, profile=None) -> DownloadManifest:
+                endpoint=None, profile=None, alternatives=None) -> DownloadManifest:
     """Create a lockfile describing the selected remote files."""
     ref = parse_modely_uri(resource)
     if revision:
@@ -63,6 +63,7 @@ def create_lock(resource: str, *, revision=None, include=None, exclude=None, out
             "profile": profile,
             "include": include,
             "exclude": exclude,
+            "alternatives": _parse_alternatives(alternatives),
         },
     )
     manifest.metadata.update(lock_summary(manifest))
@@ -81,18 +82,23 @@ def lock_summary(manifest: DownloadManifest) -> dict:
     }
 
 
-def install_lock(lockfile: str, *, local_dir=None, cache_dir=None, token=None, force_download=False):
+def install_lock(lockfile: str, *, local_dir=None, cache_dir=None, token=None, force_download=False, fallback=False, prefer=None):
     """Install resources described by a lockfile."""
     manifest = read_manifest(lockfile)
     resource = _manifest_uri(manifest)
+    alternatives = prefer or ",".join(manifest.metadata.get("alternatives") or [])
     path = download_resource(
-        resource,
+        resource if not fallback else manifest.repo_id,
+        source="auto" if fallback else manifest.source,
+        repo_type=manifest.repo_type,
         revision=manifest.revision,
         cache_dir=cache_dir,
         local_dir=local_dir,
         token=token,
         include=manifest.include,
         exclude=manifest.exclude,
+        prefer=alternatives or "ms,hf,github",
+        fallback=fallback,
         force_download=force_download,
     )
     manifest.local_path = path
@@ -176,5 +182,13 @@ def print_lock_validation(result: dict, *, as_json=False) -> None:
             print(f"  - {path}")
 
 
+def _parse_alternatives(alternatives) -> list[str]:
+    if not alternatives:
+        return []
+    if isinstance(alternatives, str):
+        return [item.strip() for item in alternatives.split(",") if item.strip()]
+    return [str(item).strip() for item in alternatives if str(item).strip()]
+
+
 def _manifest_uri(manifest: DownloadManifest) -> str:
-    return format_modely_uri(manifest)
+    return format_modely_uri(RepoRef(manifest.source, manifest.repo_type, manifest.repo_id, manifest.revision))

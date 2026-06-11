@@ -180,6 +180,19 @@ def test_modelscope_snapshot_still_errors_when_listing_unavailable(monkeypatch):
         watch._ms_fingerprint(target, token=None)
 
 
+def test_check_drift_does_not_update_state(tmp_path, monkeypatch):
+    config_path = tmp_path / "watch.json"
+    state_path = tmp_path / "state.json"
+    write_config(config_path, {"state_file": str(state_path), "targets": [{"source": "hf", "repo_type": "model", "repo_id": "gpt2"}]})
+    write_config(state_path, {"hf:model:gpt2:main": {"fingerprint": "old"}})
+    monkeypatch.setattr(watch, "get_remote_fingerprint", lambda _: "new")
+
+    results = watch.check_drift(str(config_path))
+
+    assert results[0]["status"] == "drifted"
+    assert json.loads(state_path.read_text())["hf:model:gpt2:main"]["fingerprint"] == "old"
+
+
 def test_run_prints_message_when_no_targets(capsys):
     watch._print_run_results([])
 

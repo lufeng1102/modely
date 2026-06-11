@@ -1,7 +1,7 @@
 """Unit tests for policy evaluation."""
 
-from modely.policy import evaluate_scan_policy
-from modely.types import AssetAnalysis, FileSummary, RepoInfo, ScanFinding, ScanResult
+from modely.policy import evaluate_catalog_policy, evaluate_scan_policy
+from modely.types import AssetAnalysis, CatalogEntry, CatalogReport, FileSummary, RepoInfo, ScanFinding, ScanResult
 
 
 def _scan(findings, license="mit"):
@@ -38,3 +38,33 @@ def test_allowed_license_policy():
 
     assert result["ok"] is False
     assert result["violations"][0]["type"] == "license"
+
+
+def test_catalog_policy_blocks_scan_summary():
+    report = CatalogReport("/tmp", entries=[
+        CatalogEntry("bad", scan={"risk_level": "high", "finding_ids": ["pickle-artifact"]}),
+        CatalogEntry("ok", scan={"risk_level": "low", "finding_ids": []}),
+    ])
+
+    result = evaluate_catalog_policy(report, fail_on="medium")
+
+    assert result["ok"] is False
+    assert result["summary"] == {"blocked": 1, "allowed": 1}
+    assert result["blocked"][0]["id"] == "bad"
+
+
+def test_catalog_policy_ignores_ids_before_threshold():
+    report = CatalogReport("/tmp", entries=[CatalogEntry("ignored", scan={"risk_level": "high", "finding_ids": ["pickle-artifact"]})])
+
+    result = evaluate_catalog_policy(report, fail_on="high", policy={"ignore_finding_ids": ["pickle-artifact"]})
+
+    assert result["ok"] is True
+
+
+def test_catalog_policy_preserves_unknown_high_risk_findings():
+    report = CatalogReport("/tmp", entries=[CatalogEntry("bad", scan={"risk_level": "high", "finding_ids": ["malware-signature", "missing-card"]})])
+
+    result = evaluate_catalog_policy(report, fail_on="high")
+
+    assert result["ok"] is False
+    assert result["blocked"][0]["risk_level"] == "high"

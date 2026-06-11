@@ -8,6 +8,7 @@ from Hugging Face and ModelScope, avoiding duplicate downloads.
 import os
 import json
 import shutil
+import hashlib
 from pathlib import Path
 from typing import Optional, List, Dict
 
@@ -284,3 +285,52 @@ def clean_cache(repo_id: Optional[str] = None, repo_type: Optional[str] = None,
             os.makedirs(cache_dir, exist_ok=True)
 
     return cleaned_bytes
+
+
+def find_duplicate_files(cache_dir: Optional[str] = None) -> Dict:
+    """Find duplicate files in cache by SHA256 without modifying files."""
+    cache_dir = get_cache_dir(cache_dir)
+    by_size: Dict[int, List[str]] = {}
+    for root, _, filenames in os.walk(cache_dir):
+        for filename in filenames:
+            path = os.path.join(root, filename)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            if size > 0:
+                by_size.setdefault(size, []).append(path)
+
+    groups = []
+    for size, paths in by_size.items():
+        if len(paths) < 2:
+            continue
+        by_hash: Dict[str, List[str]] = {}
+        for path in paths:
+            by_hash.setdefault(_sha256(path), []).append(path)
+        for digest, dupes in by_hash.items():
+            if len(dupes) > 1:
+                groups.append({"sha256": digest, "size": size, "paths": dupes, "wasted_size": size * (len(dupes) - 1)})
+    reclaimable = sum(group["wasted_size"] for group in groups)
+    return {"cache_dir": cache_dir, "duplicate_groups": groups, "duplicate_files": sum(len(g["paths"]) for g in groups), "reclaimable_size": reclaimable, "reclaimable_size_str": _format_size(reclaimable)}
+
+
+def print_dedupe_report(report: Dict, *, as_json: bool = False) -> None:
+    """Print duplicate cache file report."""
+    if as_json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return
+    print(f"Cache directory: {report['cache_dir']}")
+    print(f"Duplicate groups: {len(report['duplicate_groups'])}")
+    print(f"Duplicate files:  {report['duplicate_files']}")
+    print(f"Reclaimable:      {report['reclaimable_size_str']}")
+    for group in report["duplicate_groups"][:10]:
+        print(f"  - {group['sha256']} ({_format_size(group['size'])} x {len(group['paths'])})")
+
+
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
