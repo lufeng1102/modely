@@ -5,7 +5,7 @@
   - Verify: `python -m pytest tests/ -m "not integration"`
   - Files: none expected
 
-- [ ] Task: Add planning artifacts
+- [x] Task: Add planning artifacts
   - Acceptance: `tasks/plan.md` captures dependency graph, phases, checkpoints, and risks; `tasks/todo.md` captures vertical tasks with acceptance and verification.
   - Verify: `git diff --check`
   - Files: `tasks/plan.md`, `tasks/todo.md`
