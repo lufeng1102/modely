@@ -6,6 +6,7 @@ import json
 from typing import List, Optional
 
 from .analyze import analyze_resource
+from .local import analyze_local_path
 from .files import format_file_size
 from .types import AssetAnalysis, ScanFinding, ScanResult
 
@@ -46,6 +47,20 @@ def scan_resource(
         summary=summarize_findings(findings),
         analysis=analysis,
         metadata={"deep": deep, "profile": profile, "include": include, "exclude": exclude},
+    )
+
+
+def scan_path(path: str, *, deep: bool = True) -> ScanResult:
+    """Scan a local path without network access."""
+    analysis = analyze_local_path(path, deep=deep)
+    findings = find_scan_findings(analysis)
+    return ScanResult(
+        resource=path,
+        risk_level=risk_level(findings),
+        findings=findings,
+        summary=summarize_findings(findings),
+        analysis=analysis,
+        metadata={"deep": deep, "local": True},
     )
 
 

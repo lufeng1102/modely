@@ -2,7 +2,9 @@
 
 import json
 
-from modely.catalog import catalog_from_cache, catalog_from_directory, print_catalog_report, scan_catalog
+from modely.catalog import (catalog_from_cache, catalog_from_directory, diff_catalogs, export_catalog,
+                            list_catalog_snapshots, print_catalog_diff, print_catalog_report, scan_catalog,
+                            snapshot_catalog)
 from modely.manifest import write_manifest
 from modely.types import DownloadManifest, FileInfo
 
@@ -59,7 +61,7 @@ def test_catalog_from_cache(monkeypatch):
     assert entries[0].metadata["origin"] == "cache"
 
 
-def test_scan_catalog_summary_and_enrichment_skip(tmp_path):
+def test_scan_catalog_summary_and_local_enrichment(tmp_path):
     model = tmp_path / "model-a"
     model.mkdir()
     (model / "config.json").write_text("{}")
@@ -68,7 +70,9 @@ def test_scan_catalog_summary_and_enrichment_skip(tmp_path):
 
     assert report.summary["total_entries"] == 1
     assert report.summary["by_source"] == {"unknown": 1}
-    assert "score/scan enrichment skipped" in report.warnings[0]
+    assert report.entries[0].score["score"] >= 0
+    assert report.entries[0].scan["risk_level"] in {"none", "low", "medium", "high"}
+    assert report.warnings == []
 
 
 def test_print_catalog_json(tmp_path, capsys):
@@ -105,3 +109,113 @@ def test_scan_catalog_from_cache(monkeypatch):
 
     assert report.root == "/tmp/cache"
     assert report.summary["by_source"] == {"ms": 1}
+
+
+def test_catalog_local_enrichment(tmp_path):
+    model = tmp_path / "model-a"
+    model.mkdir()
+    (model / "config.json").write_text("{}")
+    (model / "weights.pkl").write_text("pickle")
+
+    report = scan_catalog(str(tmp_path), include_scores=True, include_scan=True)
+
+    assert report.entries[0].score["score"] >= 0
+    assert report.entries[0].scan["risk_level"] == "high"
+
+
+def test_diff_catalogs_detects_changes(tmp_path):
+    old_root = tmp_path / "old"
+    new_root = tmp_path / "new"
+    old_model = old_root / "model-a"
+    new_model = new_root / "model-a"
+    old_model.mkdir(parents=True)
+    new_model.mkdir(parents=True)
+    (old_model / "config.json").write_text("{}")
+    (new_model / "config.json").write_text("{}")
+    (new_model / "tokenizer.json").write_text("{}")
+
+    diff = diff_catalogs(scan_catalog(str(old_root)), scan_catalog(str(new_root)))
+
+    assert diff["summary"]["changed"] == 1
+    assert "file_count" in diff["changed"][0]["changes"]
+
+
+def test_diff_catalogs_detects_added_and_removed(tmp_path):
+    old_root = tmp_path / "old-root"
+    new_root = tmp_path / "new-root"
+    old_model = old_root / "old-model"
+    new_model = new_root / "new-model"
+    old_model.mkdir(parents=True)
+    new_model.mkdir(parents=True)
+    (old_model / "config.json").write_text("{}")
+    (new_model / "config.json").write_text("{}")
+
+    diff = diff_catalogs(scan_catalog(str(old_root)), scan_catalog(str(new_root)))
+
+    assert diff["summary"] == {"added": 1, "removed": 1, "changed": 0}
+    assert diff["added"][0]["id"] == "new-model"
+    assert diff["removed"][0]["id"] == "old-model"
+
+
+def test_print_catalog_diff_human_includes_details(tmp_path, capsys):
+    old_root = tmp_path / "old-root"
+    new_root = tmp_path / "new-root"
+    old_model = old_root / "old-model"
+    new_model = new_root / "new-model"
+    old_model.mkdir(parents=True)
+    new_model.mkdir(parents=True)
+    (old_model / "config.json").write_text("{}")
+    (new_model / "config.json").write_text("{}")
+
+    print_catalog_diff(diff_catalogs(scan_catalog(str(old_root)), scan_catalog(str(new_root))))
+    out = capsys.readouterr().out
+
+    assert "Added entries:" in out
+    assert "new-model" in out
+    assert "Removed entries:" in out
+    assert "old-model" in out
+
+
+def test_export_catalog_csv(tmp_path):
+    model = tmp_path / "model-a"
+    model.mkdir()
+    (model / "config.json").write_text("{}")
+    (model / "weights.pkl").write_text("pickle")
+    report = scan_catalog(str(tmp_path), include_scores=True, include_scan=True)
+
+    csv_text = export_catalog(report)
+
+    assert "id,source,repo_type" in csv_text
+    assert "model-a" in csv_text
+    assert "score,grade,risk_level,finding_count" in csv_text
+    assert "high" in csv_text
+
+
+def test_export_catalog_rejects_unsupported_format(tmp_path):
+    model = tmp_path / "model-a"
+    model.mkdir()
+    (model / "config.json").write_text("{}")
+
+    try:
+        export_catalog(scan_catalog(str(tmp_path)), format="jsonl")
+    except ValueError as exc:
+        assert "Unsupported catalog export format" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_catalog_snapshots(tmp_path):
+    model = tmp_path / "model-a"
+    model.mkdir()
+    (model / "config.json").write_text("{}")
+    history = tmp_path / "history"
+
+    path = snapshot_catalog(scan_catalog(str(tmp_path)), history_dir=str(history), name="catalog-test.json")
+    snapshots = list_catalog_snapshots(str(history))
+
+    assert path.endswith("catalog-test.json")
+    assert snapshots[0]["path"] == path
+
+
+def test_catalog_snapshots_empty_history(tmp_path):
+    assert list_catalog_snapshots(str(tmp_path / "missing-history")) == []

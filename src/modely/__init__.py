@@ -39,10 +39,12 @@ from .plan import create_download_plan, print_download_plan
 from .profiles import PROFILES, resolve_download_profile
 from .sources import list_source_profiles, print_probe_results, print_source_profiles, rank_sources
 from .resolve import print_resolve_result, resolve_resource
-from .scan import print_scan_result, scan_resource
-from .score import print_asset_score, score_resource
+from .policy import evaluate_scan_policy, load_policy
+from .scan import print_scan_result, scan_path, scan_resource
+from .score import print_asset_score, score_path, score_resource
 from .sync import sync_resource
-from .catalog import print_catalog_report, scan_catalog, write_catalog_report
+from .catalog import (diff_catalogs, export_catalog, list_catalog_snapshots, print_catalog_diff,
+                      print_catalog_report, read_catalog_report, scan_catalog, snapshot_catalog, write_catalog_report)
 from .common import cache
 
 
@@ -222,6 +224,7 @@ def main():
     score_parser.add_argument('--exclude', nargs='+', default=None)
     score_parser.add_argument('--profile', choices=list(PROFILES), default=None)
     score_parser.add_argument('--no-deep', action='store_true', help='Disable deep metadata-derived scoring')
+    score_parser.add_argument('--local', action='store_true', help='Score a local directory without network access')
     score_parser.add_argument('--json', action='store_true')
 
     scan_parser = subparsers.add_parser("scan", help="Scan modely resource for metadata, safety, and reproducibility risks")
@@ -233,6 +236,9 @@ def main():
     scan_parser.add_argument('--exclude', nargs='+', default=None)
     scan_parser.add_argument('--profile', choices=list(PROFILES), default=None)
     scan_parser.add_argument('--no-deep', action='store_true', help='Disable deep metadata-derived scanning')
+    scan_parser.add_argument('--local', action='store_true', help='Scan a local directory without network access')
+    scan_parser.add_argument('--fail-on', choices=['low', 'medium', 'high'], default=None, help='Exit nonzero if findings meet this severity')
+    scan_parser.add_argument('--policy', default=None, help='JSON policy file for scan evaluation')
     scan_parser.add_argument('--json', action='store_true')
 
     compare_parser = subparsers.add_parser("compare", help="Compare two modely resources")
@@ -329,13 +335,28 @@ def main():
     catalog_scan_parser.add_argument("root", nargs="?", default=None, help="Local root directory to scan")
     catalog_scan_parser.add_argument('--cache', action='store_true', help='Catalog the modely cache instead of a local root')
     catalog_scan_parser.add_argument('--cache-dir', default=None)
-    catalog_scan_parser.add_argument('--score', action='store_true', help='Attach score summaries; requires --remote')
-    catalog_scan_parser.add_argument('--scan', action='store_true', help='Attach scan summaries; requires --remote')
+    catalog_scan_parser.add_argument('--score', action='store_true', help='Attach score summaries using local analysis by default')
+    catalog_scan_parser.add_argument('--scan', action='store_true', help='Attach scan summaries')
     catalog_scan_parser.add_argument('--remote', action='store_true', help='Allow network metadata calls for score/scan enrichment')
+    catalog_scan_parser.add_argument('--fail-on', choices=['low', 'medium', 'high'], default=None, help='Policy threshold for attached scan summaries')
+    catalog_scan_parser.add_argument('--policy', default=None, help='JSON policy file for scan evaluation')
+    catalog_scan_parser.add_argument('--snapshot', action='store_true', help='Save the catalog report as a history snapshot')
+    catalog_scan_parser.add_argument('--history-dir', default='.modely/catalog', help='Catalog snapshot directory')
     catalog_scan_parser.add_argument('--token', default=None)
     catalog_scan_parser.add_argument('--endpoint', default=None)
     catalog_scan_parser.add_argument('--output', '-o', default=None, help='Write JSON report to a file')
     catalog_scan_parser.add_argument('--json', action='store_true')
+    catalog_diff_parser = catalog_subparsers.add_parser("diff", help="Compare two catalog reports")
+    catalog_diff_parser.add_argument("left")
+    catalog_diff_parser.add_argument("right")
+    catalog_diff_parser.add_argument('--json', action='store_true')
+    catalog_export_parser = catalog_subparsers.add_parser("export", help="Export a catalog report")
+    catalog_export_parser.add_argument("report")
+    catalog_export_parser.add_argument('--format', choices=['csv'], default='csv')
+    catalog_export_parser.add_argument('--output', '-o', default=None)
+    catalog_history_parser = catalog_subparsers.add_parser("history", help="List catalog snapshots")
+    catalog_history_parser.add_argument('--dir', default='.modely/catalog')
+    catalog_history_parser.add_argument('--json', action='store_true')
 
     sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
     mirror_parser = subparsers.add_parser("mirror", help="Alias for sync")
@@ -648,19 +669,30 @@ def main():
             sys.exit(1)
     elif args.command == "score":
         try:
-            result = score_resource(args.resource, revision=args.revision, token=args.token,
-                                    endpoint=args.endpoint, include=args.include, exclude=args.exclude,
-                                    profile=args.profile, deep=not args.no_deep)
+            if args.local or (os.path.exists(args.resource) and "://" not in args.resource):
+                result = score_path(args.resource, deep=not args.no_deep)
+            else:
+                result = score_resource(args.resource, revision=args.revision, token=args.token,
+                                        endpoint=args.endpoint, include=args.include, exclude=args.exclude,
+                                        profile=args.profile, deep=not args.no_deep)
             print_asset_score(result, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
     elif args.command == "scan":
         try:
-            result = scan_resource(args.resource, revision=args.revision, token=args.token,
-                                   endpoint=args.endpoint, include=args.include, exclude=args.exclude,
-                                   profile=args.profile, deep=not args.no_deep)
+            if args.local or (os.path.exists(args.resource) and "://" not in args.resource):
+                result = scan_path(args.resource, deep=not args.no_deep)
+            else:
+                result = scan_resource(args.resource, revision=args.revision, token=args.token,
+                                       endpoint=args.endpoint, include=args.include, exclude=args.exclude,
+                                       profile=args.profile, deep=not args.no_deep)
+            policy_result = evaluate_scan_policy(result, fail_on=args.fail_on, policy=load_policy(args.policy)) if (args.fail_on or args.policy) else None
+            if policy_result:
+                result.metadata["policy"] = policy_result
             print_scan_result(result, as_json=args.json)
+            if policy_result and not policy_result["ok"]:
+                sys.exit(1)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -780,11 +812,46 @@ def main():
                 report = scan_catalog(args.root, cache_dir=args.cache_dir, from_cache=args.cache,
                                       include_scores=args.score, include_scan=args.scan,
                                       use_remote=args.remote, token=args.token, endpoint=args.endpoint)
+                if args.scan and (args.fail_on or args.policy):
+                    policy = load_policy(args.policy)
+                    failed = False
+                    for entry in report.entries:
+                        if entry.scan and entry.local_path and not args.remote:
+                            scan_result = scan_path(entry.local_path)
+                            policy_result = evaluate_scan_policy(scan_result, fail_on=args.fail_on, policy=policy)
+                            entry.scan["policy"] = policy_result
+                            failed = failed or not policy_result["ok"]
+                    report.metadata["policy_failed"] = failed
+                else:
+                    failed = False
+                if args.snapshot:
+                    report.metadata["snapshot"] = snapshot_catalog(report, history_dir=args.history_dir)
                 if args.output:
                     write_catalog_report(report, args.output)
                 print_catalog_report(report, as_json=args.json)
+                if failed:
+                    sys.exit(1)
+            elif args.catalog_command == "diff":
+                print_catalog_diff(diff_catalogs(read_catalog_report(args.left), read_catalog_report(args.right)), as_json=args.json)
+            elif args.catalog_command == "export":
+                exported = export_catalog(read_catalog_report(args.report), format=args.format)
+                if args.output:
+                    with open(args.output, "w") as f:
+                        f.write(exported)
+                else:
+                    print(exported, end="")
+            elif args.catalog_command == "history":
+                snapshots = list_catalog_snapshots(args.dir)
+                if args.json:
+                    print(json.dumps(snapshots, indent=2, ensure_ascii=False))
+                else:
+                    if snapshots:
+                        for item in snapshots:
+                            print(f"{item['path']} ({item['size']} bytes)")
+                    else:
+                        print("No catalog snapshots found.")
             else:
-                print("Usage: modely catalog scan [ROOT|--cache]")
+                print("Usage: modely catalog [scan|diff|export|history]")
                 sys.exit(1)
         except Exception as e:
             print(f"Error: {e}")

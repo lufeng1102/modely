@@ -2,7 +2,7 @@
 
 import json
 
-from modely.scan import print_scan_result, risk_level, scan_resource, summarize_findings
+from modely.scan import print_scan_result, risk_level, scan_path, scan_resource, summarize_findings
 from modely.types import AssetAnalysis, FileInfo, FileSummary, RepoInfo, ScanFinding
 
 
@@ -119,3 +119,15 @@ def test_scan_human_output(monkeypatch, capsys):
 
     assert "Risk level" in out
     assert "pickle-artifact" in out
+
+
+def test_scan_path_reports_local_findings(tmp_path):
+    (tmp_path / "config.json").write_text("{}")
+    (tmp_path / "weights.pkl").write_text("pickle")
+    (tmp_path / "modeling_custom.py").write_text("pass")
+
+    result = scan_path(str(tmp_path))
+    ids = {f.id for f in result.findings}
+
+    assert "pickle-artifact" in ids
+    assert "remote-code" in ids

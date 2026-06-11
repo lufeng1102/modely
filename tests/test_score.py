@@ -2,7 +2,7 @@
 
 import json
 
-from modely.score import print_asset_score, score_resource
+from modely.score import print_asset_score, score_path, score_resource
 from modely.types import AssetAnalysis, FileInfo, FileSummary, RepoInfo
 
 
@@ -104,3 +104,15 @@ def test_score_human_output(monkeypatch, capsys):
     assert "Score:" in out
     assert "Breakdown:" in out
     assert "Strengths:" in out
+
+
+def test_score_path_local_model(tmp_path):
+    (tmp_path / "README.md").write_text("# model")
+    (tmp_path / "config.json").write_text("{}")
+    (tmp_path / "tokenizer.json").write_text("{}")
+    (tmp_path / "model.safetensors").write_text("weights")
+
+    result = score_path(str(tmp_path))
+
+    assert result.resource == str(tmp_path)
+    assert result.breakdown.completeness > 0

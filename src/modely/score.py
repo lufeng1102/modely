@@ -6,6 +6,7 @@ import json
 from typing import List, Optional
 
 from .analyze import analyze_resource
+from .local import analyze_local_path
 from .files import format_file_size
 from .scan import find_scan_findings
 from .types import AssetAnalysis, AssetScore, ScoreBreakdown
@@ -33,6 +34,10 @@ def score_resource(
         profile=profile,
         deep=deep,
     )
+    return _score_analysis(resource, analysis, revision=revision, deep=deep, profile=profile, include=include, exclude=exclude)
+
+
+def _score_analysis(resource: str, analysis: AssetAnalysis, *, revision=None, deep: bool, profile, include, exclude) -> AssetScore:
     findings = find_scan_findings(analysis)
     breakdown = ScoreBreakdown(
         completeness=_score_completeness(analysis),
@@ -55,6 +60,12 @@ def score_resource(
         analysis=analysis,
         metadata={"deep": deep, "profile": profile, "include": include, "exclude": exclude},
     )
+
+
+def score_path(path: str, *, deep: bool = True) -> AssetScore:
+    """Score a local path without network access."""
+    analysis = analyze_local_path(path, deep=deep)
+    return _score_analysis(path, analysis, revision=None, deep=deep, profile=None, include=None, exclude=None)
 
 
 def print_asset_score(result: AssetScore, *, as_json: bool = False) -> None:

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import csv
+import io
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Optional
@@ -38,10 +41,10 @@ def scan_catalog(
         report_root = str(Path(scan_root).resolve())
         mode = "directory"
 
-    if (include_scores or include_scan) and not use_remote:
-        warnings.append("score/scan enrichment skipped; pass --remote to allow metadata calls")
-    elif use_remote and (include_scores or include_scan):
+    if (include_scores or include_scan) and use_remote:
         _enrich_entries(entries, include_scores=include_scores, include_scan=include_scan, token=token, endpoint=endpoint, warnings=warnings)
+    elif include_scores or include_scan:
+        _enrich_entries_local(entries, include_scores=include_scores, include_scan=include_scan, warnings=warnings)
 
     return CatalogReport(
         root=report_root,
@@ -143,6 +146,115 @@ def write_catalog_report(report: CatalogReport, output: str) -> None:
         json.dump(report.to_dict(), f, indent=2, ensure_ascii=False)
 
 
+def read_catalog_report(path: str) -> CatalogReport:
+    """Read a catalog report JSON file."""
+    with open(path, "r") as f:
+        data = json.load(f)
+    entries = [CatalogEntry(**item) for item in data.get("entries", [])]
+    return CatalogReport(
+        root=data.get("root", ""),
+        entries=entries,
+        summary=data.get("summary") or {},
+        warnings=data.get("warnings") or [],
+        metadata=data.get("metadata") or {},
+    )
+
+
+def diff_catalogs(left: CatalogReport, right: CatalogReport) -> dict:
+    """Return added, removed, and changed entries between two catalog reports."""
+    left_map = {_catalog_key(e): e for e in left.entries}
+    right_map = {_catalog_key(e): e for e in right.entries}
+    added = [right_map[k].to_dict() for k in sorted(set(right_map) - set(left_map))]
+    removed = [left_map[k].to_dict() for k in sorted(set(left_map) - set(right_map))]
+    changed = []
+    for key in sorted(set(left_map) & set(right_map)):
+        changes = _entry_changes(left_map[key], right_map[key])
+        if changes:
+            changed.append({"key": key, "before": left_map[key].to_dict(), "after": right_map[key].to_dict(), "changes": changes})
+    return {"added": added, "removed": removed, "changed": changed, "summary": {"added": len(added), "removed": len(removed), "changed": len(changed)}}
+
+
+def print_catalog_diff(diff: dict, *, as_json: bool = False) -> None:
+    """Print a catalog diff."""
+    if as_json:
+        print(json.dumps(diff, indent=2, ensure_ascii=False))
+        return
+    summary = diff.get("summary", {})
+    print(f"Added:   {summary.get('added', 0)}")
+    print(f"Removed: {summary.get('removed', 0)}")
+    print(f"Changed: {summary.get('changed', 0)}")
+    if diff.get("added"):
+        print("Added entries:")
+        for item in diff.get("added", []):
+            print(f"  - {_diff_entry_label(item)}")
+    if diff.get("removed"):
+        print("Removed entries:")
+        for item in diff.get("removed", []):
+            print(f"  - {_diff_entry_label(item)}")
+    if diff.get("changed"):
+        print("Changed entries:")
+        for item in diff.get("changed", []):
+            print(f"  - {item['key']}: {', '.join(item['changes'])}")
+
+
+def _diff_entry_label(item: dict) -> str:
+    if item.get("source") and item.get("repo_type") and item.get("repo_id"):
+        return f"{item.get('source')}:{item.get('repo_type')}:{item.get('repo_id')}:{item.get('revision') or 'unknown'}"
+    return item.get("id") or item.get("local_path") or "unknown"
+
+
+def export_catalog(report: CatalogReport, *, format: str = "csv") -> str:
+    """Export a catalog report. CSV is the only MVP format."""
+    if format != "csv":
+        raise ValueError(f"Unsupported catalog export format: {format}")
+    fields = ["id", "source", "repo_type", "repo_id", "revision", "local_path", "size", "file_count", "score", "grade", "risk_level", "finding_count", "lock_path", "manifest_path"]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    for entry in report.entries:
+        score = entry.score or {}
+        scan = entry.scan or {}
+        writer.writerow({
+            "id": entry.id,
+            "source": entry.source or "",
+            "repo_type": entry.repo_type or "",
+            "repo_id": entry.repo_id or "",
+            "revision": entry.revision or "",
+            "local_path": entry.local_path,
+            "size": entry.size,
+            "file_count": entry.file_count,
+            "score": score.get("score", ""),
+            "grade": score.get("grade", ""),
+            "risk_level": scan.get("risk_level", ""),
+            "finding_count": (scan.get("summary") or {}).get("total", ""),
+            "lock_path": entry.lock_path or "",
+            "manifest_path": entry.manifest_path or "",
+        })
+    return output.getvalue()
+
+
+def snapshot_catalog(report: CatalogReport, *, history_dir: str = ".modely/catalog", name: Optional[str] = None) -> str:
+    """Write a catalog report snapshot and return its path."""
+    target_dir = Path(history_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = name or f"catalog-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.json"
+    path = target_dir / filename
+    write_catalog_report(report, str(path))
+    return str(path)
+
+
+def list_catalog_snapshots(history_dir: str = ".modely/catalog") -> list[dict]:
+    """List saved catalog snapshots."""
+    root = Path(history_dir)
+    if not root.exists():
+        return []
+    snapshots = []
+    for path in sorted(root.glob("*.json")):
+        stat = path.stat()
+        snapshots.append({"path": str(path), "size": stat.st_size, "mtime": int(stat.st_mtime)})
+    return snapshots
+
+
 def _entry_from_directory(path: Path) -> Optional[CatalogEntry]:
     files = [p for p in path.rglob("*") if p.is_file() and ".git" not in p.parts]
     if not files:
@@ -215,3 +327,45 @@ def _enrich_entries(entries, *, include_scores, include_scan, token, endpoint, w
                 entry.scan = {"risk_level": scan.risk_level, "summary": scan.summary, "finding_ids": [f.id for f in scan.findings]}
         except Exception as exc:
             warnings.append(f"remote enrichment failed for {entry.id}: {exc}")
+
+
+def _enrich_entries_local(entries, *, include_scores, include_scan, warnings) -> None:
+    if include_scores:
+        from .score import score_path
+    if include_scan:
+        from .scan import scan_path
+    for entry in entries:
+        if not entry.local_path:
+            warnings.append(f"skipped local enrichment for {entry.id}: missing local path")
+            continue
+        try:
+            if include_scores:
+                score = score_path(entry.local_path)
+                entry.score = {"score": score.score, "grade": score.grade, "breakdown": score.breakdown.to_dict(), "risks": score.risks}
+            if include_scan:
+                scan = scan_path(entry.local_path)
+                entry.scan = {"risk_level": scan.risk_level, "summary": scan.summary, "finding_ids": [f.id for f in scan.findings]}
+        except Exception as exc:
+            warnings.append(f"local enrichment failed for {entry.id}: {exc}")
+
+
+def _catalog_key(entry: CatalogEntry) -> str:
+    if entry.source and entry.repo_type and entry.repo_id:
+        return f"{entry.source}:{entry.repo_type}:{entry.repo_id}:{entry.revision or 'unknown'}"
+    return entry.id
+
+
+def _entry_changes(left: CatalogEntry, right: CatalogEntry) -> dict:
+    changes = {}
+    for field in ("size", "file_count", "local_path"):
+        if getattr(left, field) != getattr(right, field):
+            changes[field] = [getattr(left, field), getattr(right, field)]
+    left_score = (left.score or {}).get("score")
+    right_score = (right.score or {}).get("score")
+    if left_score != right_score:
+        changes["score"] = [left_score, right_score]
+    left_risk = (left.scan or {}).get("risk_level")
+    right_risk = (right.scan or {}).get("risk_level")
+    if left_risk != right_risk:
+        changes["risk_level"] = [left_risk, right_risk]
+    return changes
