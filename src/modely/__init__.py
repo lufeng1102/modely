@@ -453,9 +453,7 @@ def main():
     batch_parser.add_argument('--checksum', action='store_true')
     batch_parser.add_argument('--no-resume', action='store_true')
     batch_parser.add_argument('--fail-fast', action='store_true')
-    batch_execute = batch_parser.add_mutually_exclusive_group()
-    batch_execute.add_argument('--yes', action='store_true', help='Execute downloads instead of dry-run')
-    batch_execute.add_argument('--execute', action='store_true', help='Execute downloads instead of dry-run')
+    batch_parser.add_argument('--yes', action='store_true', help='Execute downloads instead of dry-run')
     batch_parser.add_argument('--json', action='store_true')
 
     sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
@@ -1021,7 +1019,7 @@ def main():
                 before=args.before,
                 full=args.full,
             )
-            if args.yes or args.execute:
+            if args.yes:
                 result = run_batch_download(
                     plan,
                     local_dir=args.local_dir,

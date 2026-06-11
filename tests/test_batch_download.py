@@ -176,7 +176,7 @@ def test_batch_download_cli_accepts_task_without_tag(monkeypatch, capsys):
     assert output["downloads"][0]["resource"] == "hf://models/org/model"
 
 
-def test_batch_download_cli_execute_exits_nonzero_on_failure(monkeypatch, capsys):
+def test_batch_download_cli_yes_exits_nonzero_on_failure(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["modely", "batch-download", "qwen", "--tag", "tag", "--yes"])
     monkeypatch.setattr(
         "modely.batch.search",
