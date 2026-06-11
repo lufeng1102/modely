@@ -421,7 +421,7 @@ def main():
 
     batch_parser = subparsers.add_parser("batch-download", help="Search by tags and batch download matching resources")
     batch_parser.add_argument("keyword", nargs="?", default=None)
-    batch_parser.add_argument('--tag', action='append', required=True, help='Required tag; repeat for AND matching')
+    batch_parser.add_argument('--tag', action='append', default=None, help='Required tag; repeat for AND matching')
     batch_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
     batch_parser.add_argument('--repo-type', choices=['model', 'dataset'], default='model')
     batch_parser.add_argument('--limit', type=int, default=20, help='Maximum matching resources to download')

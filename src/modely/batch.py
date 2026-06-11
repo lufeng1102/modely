@@ -39,7 +39,9 @@ def create_batch_download_plan(
     full: bool = False,
 ) -> dict:
     """Create a dry-run batch download plan from tag-filtered search results."""
-    required_tags = sorted(_normalize_tags(tags))
+    required_tags = sorted(_normalize_tags(tags, required=False))
+    if not required_tags and not _has_structured_filter(keyword=keyword, task=task, library=library, license=license, author=author, after=after, before=before):
+        raise ValueError("at least one tag or search filter is required")
     fetched = search(
         keyword=keyword,
         source=source,
@@ -55,7 +57,9 @@ def create_batch_download_plan(
         before=before,
         full=full,
     )
-    matched = filter_results_by_tags(fetched, required_tags)
+    matched = filter_results_by_tags(fetched, required_tags) if required_tags else list(fetched)
+    if repo_type in {"model", "dataset"}:
+        matched = [result for result in matched if result.repo_type == repo_type]
     selected = matched[:limit]
     return {
         "dry_run": True,
@@ -153,11 +157,15 @@ def print_batch_download_result(result: dict, *, as_json: bool = False) -> None:
                 print(f"  - {item.get('resource')}: {item.get('error')}")
 
 
-def _normalize_tags(tags: Sequence[str]) -> set[str]:
-    normalized = {str(tag).strip().lower() for tag in tags if str(tag).strip()}
-    if not normalized:
+def _normalize_tags(tags: Optional[Sequence[str]], *, required: bool = True) -> set[str]:
+    normalized = {str(tag).strip().lower() for tag in (tags or []) if str(tag).strip()}
+    if required and not normalized:
         raise ValueError("at least one tag is required")
     return normalized
+
+
+def _has_structured_filter(**filters) -> bool:
+    return any(value for value in filters.values())
 
 
 def _download_item(result: SearchResult) -> dict:

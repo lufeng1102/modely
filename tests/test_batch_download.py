@@ -56,9 +56,45 @@ def test_create_batch_download_plan_filters_and_limits(monkeypatch):
     assert [item["resource"] for item in plan["downloads"]] == ["hf://models/org/one"]
 
 
-def test_create_batch_download_plan_rejects_empty_tags():
-    with pytest.raises(ValueError, match="at least one tag"):
-        create_batch_download_plan("qwen", tags=[])
+def test_create_batch_download_plan_rejects_empty_filters():
+    with pytest.raises(ValueError, match="tag or search filter"):
+        create_batch_download_plan(None, tags=[])
+
+
+def test_create_batch_download_plan_allows_task_without_tags(monkeypatch):
+    monkeypatch.setattr(
+        "modely.batch.search",
+        lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])],
+    )
+
+    plan = create_batch_download_plan(None, tags=[], task="text-generation")
+
+    assert plan["tags"] == []
+    assert plan["downloads"][0]["resource"] == "hf://models/org/model"
+
+def test_create_batch_download_plan_allows_keyword_without_tags(monkeypatch):
+    monkeypatch.setattr(
+        "modely.batch.search",
+        lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])],
+    )
+
+    plan = create_batch_download_plan("qwen", tags=[])
+
+    assert plan["downloads"][0]["resource"] == "hf://models/org/model"
+
+
+def test_create_batch_download_plan_filters_repo_type_from_all_sources(monkeypatch):
+    monkeypatch.setattr(
+        "modely.batch.search",
+        lambda **kwargs: [
+            SearchResult(id="org/model", source="hf", repo_type="model", tags=[]),
+            SearchResult(id="owner/tool", source="github", repo_type="tool", tags=[]),
+        ],
+    )
+
+    plan = create_batch_download_plan("qwen", source="all", repo_type="model", tags=[])
+
+    assert [item["resource"] for item in plan["downloads"]] == ["hf://models/org/model"]
 
 
 def test_run_batch_download_calls_download_resource(monkeypatch):
@@ -124,6 +160,19 @@ def test_batch_download_cli_dry_run(monkeypatch, capsys):
 
     output = json.loads(capsys.readouterr().out)
     assert output["dry_run"] is True
+    assert output["downloads"][0]["resource"] == "hf://models/org/model"
+
+
+def test_batch_download_cli_accepts_task_without_tag(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["modely", "batch-download", "--task", "text-generation", "--repo-type", "model", "--json"])
+    monkeypatch.setattr(
+        "modely.batch.search",
+        lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])],
+    )
+
+    modely.main()
+
+    output = json.loads(capsys.readouterr().out)
     assert output["downloads"][0]["resource"] == "hf://models/org/model"
 
 
