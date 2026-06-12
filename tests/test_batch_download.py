@@ -6,7 +6,7 @@ import sys
 import pytest
 
 import modely
-from modely.batch import create_batch_download_plan, filter_results_by_tags, run_batch_download
+from modely.batch import create_batch_download_plan, filter_results_by_tags, print_batch_download_result, run_batch_download
 from modely.search import SearchResult
 
 
@@ -57,12 +57,13 @@ def test_create_batch_download_plan_filters_and_limits(monkeypatch):
 
 
 def test_create_batch_download_plan_rejects_empty_filters():
-    with pytest.raises(ValueError, match="Please provide at least one search filter") as exc:
+    with pytest.raises(ValueError, match="Missing search filter") as exc:
         create_batch_download_plan(None, tags=[])
-    assert "keyword" in str(exc.value)
-    assert "--tag" in str(exc.value)
-    assert "--task" in str(exc.value)
-    assert "--library" in str(exc.value)
+    message = str(exc.value)
+    assert "  - keyword" in message
+    assert "  - --tag TAG" in message
+    assert "  - --task TASK" in message
+    assert "Example:" in message
 
 
 def test_create_batch_download_plan_allows_task_without_tags(monkeypatch):
@@ -151,6 +152,28 @@ def test_batch_download_plan_json_serializable(monkeypatch):
     plan = create_batch_download_plan(None, tags=["tag"])
 
     assert json.loads(json.dumps(plan))["downloads"][0]["resource"] == "hf://models/org/model"
+
+
+def test_print_batch_download_dry_run_is_readable(capsys):
+    print_batch_download_result(
+        {
+            "dry_run": True,
+            "keyword": "qwen",
+            "source": "hf",
+            "repo_type": "model",
+            "tags": ["text-generation"],
+            "matched_count": 2,
+            "selected_count": 1,
+            "downloads": [{"resource": "hf://models/org/model", "tags": ["text-generation", "transformers"]}],
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "Batch download preview" in output
+    assert "Filters:" in output
+    assert "Matched:  2" in output
+    assert "1. hf://models/org/model" in output
+    assert "Add --yes" in output
 
 
 def test_batch_download_cli_dry_run(monkeypatch, capsys):

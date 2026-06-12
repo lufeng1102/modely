@@ -37,9 +37,15 @@ def create_batch_download_plan(
     required_tags = sorted(_normalize_tags(tags, required=False))
     if not required_tags and not _has_structured_filter(keyword=keyword, task=task, library=library, license=license, author=author, after=after, before=before):
         raise ValueError(
-            "Please provide at least one search filter: keyword, --tag, --task, --library, "
-            "--license, --author, --after, or --before. Example: modely-ai batch-download qwen "
-            "--source hf --repo-type model --task text-generation"
+            "Missing search filter. Provide at least one of:\n"
+            "  - keyword (for example: qwen)\n"
+            "  - --tag TAG\n"
+            "  - --task TASK\n"
+            "  - --library LIBRARY\n"
+            "  - --license LICENSE\n"
+            "  - --author AUTHOR\n"
+            "  - --after YYYY-MM-DD or --before YYYY-MM-DD\n"
+            "Example: modely-ai batch-download qwen --source hf --repo-type model --task text-generation"
         )
     fetched = search(
         keyword=keyword,
@@ -136,15 +142,21 @@ def print_batch_download_result(result: dict, *, as_json: bool = False) -> None:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return
     if result.get("dry_run"):
+        print("Batch download preview")
+        filters = _format_filters(result)
+        if filters:
+            print(f"Filters:  {filters}")
         print(f"Matched:  {result.get('matched_count', 0)}")
         print(f"Selected: {result.get('selected_count', 0)}")
         if not result.get("downloads"):
-            print("No resources matched the requested tags.")
+            print("No resources matched the requested filters.")
         else:
-            print("Resources to download (dry-run):")
-            for item in result["downloads"]:
-                print(f"  - {item['resource']}")
-            print("Run again with --yes to download these resources.")
+            print("Resources:")
+            for index, item in enumerate(result["downloads"], start=1):
+                print(f"  {index}. {item['resource']}")
+                if item.get("tags"):
+                    print(f"     tags: {', '.join(item['tags'][:6])}")
+            print("Add --yes to download these resources.")
         return
     summary = result.get("summary") or {}
     print(f"Downloaded: {summary.get('succeeded', 0)}/{summary.get('total', 0)}")
@@ -164,6 +176,19 @@ def _normalize_tags(tags: Optional[Sequence[str]], *, required: bool = True) -> 
 
 def _has_structured_filter(**filters) -> bool:
     return any(value for value in filters.values())
+
+
+def _format_filters(result: dict) -> str:
+    items = []
+    if result.get("keyword"):
+        items.append(f"keyword={result['keyword']}")
+    if result.get("source"):
+        items.append(f"source={result['source']}")
+    if result.get("repo_type"):
+        items.append(f"repo_type={result['repo_type']}")
+    if result.get("tags"):
+        items.append("tags=" + ",".join(result["tags"]))
+    return "; ".join(items)
 
 
 def _download_item(result: SearchResult) -> dict:
