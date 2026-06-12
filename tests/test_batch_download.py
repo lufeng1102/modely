@@ -57,8 +57,12 @@ def test_create_batch_download_plan_filters_and_limits(monkeypatch):
 
 
 def test_create_batch_download_plan_rejects_empty_filters():
-    with pytest.raises(ValueError, match="tag or search filter"):
+    with pytest.raises(ValueError, match="Please provide at least one search filter") as exc:
         create_batch_download_plan(None, tags=[])
+    assert "keyword" in str(exc.value)
+    assert "--tag" in str(exc.value)
+    assert "--task" in str(exc.value)
+    assert "--library" in str(exc.value)
 
 
 def test_create_batch_download_plan_allows_task_without_tags(monkeypatch):

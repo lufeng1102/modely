@@ -36,7 +36,11 @@ def create_batch_download_plan(
     """Create a dry-run batch download plan from tag-filtered search results."""
     required_tags = sorted(_normalize_tags(tags, required=False))
     if not required_tags and not _has_structured_filter(keyword=keyword, task=task, library=library, license=license, author=author, after=after, before=before):
-        raise ValueError("at least one tag or search filter is required")
+        raise ValueError(
+            "Please provide at least one search filter: keyword, --tag, --task, --library, "
+            "--license, --author, --after, or --before. Example: modely-ai batch-download qwen "
+            "--source hf --repo-type model --task text-generation"
+        )
     fetched = search(
         keyword=keyword,
         source=source,
