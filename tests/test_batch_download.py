@@ -216,3 +216,226 @@ def test_batch_download_cli_yes_exits_nonzero_on_failure(monkeypatch, capsys):
 
     assert exc.value.code == 1
     assert "Failures:" in capsys.readouterr().out
+
+
+def test_create_batch_download_plan_forwards_all_search_filters(monkeypatch):
+    captured = {}
+
+    def fake_search(**kwargs):
+        captured.update(kwargs)
+        return [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])]
+
+    monkeypatch.setattr("modely.batch.search", fake_search)
+
+    create_batch_download_plan(
+        "qwen",
+        source="hf",
+        repo_type="model",
+        tags=[],
+        limit=7,
+        search_limit=11,
+        task="text-generation",
+        library="transformers",
+        license="apache-2.0",
+        sort="likes",
+        direction="asc",
+        author="org",
+        after="2024-01-01",
+        before="2024-12-31",
+        full=True,
+    )
+
+    assert captured == {
+        "keyword": "qwen",
+        "source": "hf",
+        "repo_type": "model",
+        "task": "text-generation",
+        "library": "transformers",
+        "license": "apache-2.0",
+        "sort": "likes",
+        "direction": "asc",
+        "limit": 11,
+        "author": "org",
+        "after": "2024-01-01",
+        "before": "2024-12-31",
+        "full": True,
+    }
+
+
+def test_create_batch_download_plan_normalizes_tags(monkeypatch):
+    monkeypatch.setattr(
+        "modely.batch.search",
+        lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["A", "b"])],
+    )
+
+    plan = create_batch_download_plan(None, tags=[" B ", "a", "A", " "])
+
+    assert plan["tags"] == ["a", "b"]
+    assert plan["downloads"][0]["resource"] == "hf://models/org/model"
+
+
+def test_create_batch_download_plan_rejects_non_positive_limits(monkeypatch):
+    monkeypatch.setattr("modely.batch.search", lambda **kwargs: [])
+
+    with pytest.raises(ValueError, match="limit must be positive"):
+        create_batch_download_plan("qwen", tags=[], limit=0)
+    with pytest.raises(ValueError, match="limit must be positive"):
+        create_batch_download_plan("qwen", tags=[], limit=-1)
+    with pytest.raises(ValueError, match="search_limit must be positive"):
+        create_batch_download_plan("qwen", tags=[], search_limit=0)
+    with pytest.raises(ValueError, match="search_limit must be positive"):
+        create_batch_download_plan("qwen", tags=[], search_limit=-1)
+
+
+def test_print_batch_download_dry_run_includes_structured_filters(capsys):
+    print_batch_download_result(
+        {
+            "dry_run": True,
+            "keyword": None,
+            "source": "hf",
+            "repo_type": "model",
+            "tags": [],
+            "task": "text-generation",
+            "library": "transformers",
+            "license": "apache-2.0",
+            "author": "org",
+            "after": "2024-01-01",
+            "before": "2024-12-31",
+            "matched_count": 1,
+            "selected_count": 1,
+            "downloads": [{"resource": "hf://models/org/model", "tags": []}],
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "task=text-generation" in output
+    assert "library=transformers" in output
+    assert "license=apache-2.0" in output
+    assert "author=org" in output
+    assert "after=2024-01-01" in output
+    assert "before=2024-12-31" in output
+
+
+def test_print_batch_download_dry_run_no_matches(capsys):
+    print_batch_download_result(
+        {
+            "dry_run": True,
+            "keyword": "qwen",
+            "source": "hf",
+            "repo_type": "model",
+            "tags": ["missing"],
+            "matched_count": 0,
+            "selected_count": 0,
+            "downloads": [],
+        }
+    )
+
+    assert "No resources matched the requested filters." in capsys.readouterr().out
+
+
+def test_run_batch_download_fail_fast_stops_after_first_failure(monkeypatch):
+    plan = {
+        "downloads": [
+            {"resource": "hf://models/good"},
+            {"resource": "hf://models/bad"},
+            {"resource": "hf://models/skipped"},
+        ]
+    }
+    calls = []
+
+    def fake_download(resource, **kwargs):
+        calls.append(resource)
+        if resource.endswith("bad"):
+            raise RuntimeError("boom")
+        return "/tmp/good"
+
+    monkeypatch.setattr("modely.batch.download_resource", fake_download)
+
+    result = run_batch_download(plan, fail_fast=True)
+
+    assert calls == ["hf://models/good", "hf://models/bad"]
+    assert result["summary"] == {"total": 2, "succeeded": 1, "failed": 1}
+    assert result["ok"] is False
+
+
+def test_run_batch_download_forwards_all_download_options(monkeypatch):
+    captured = {}
+
+    def fake_download(resource, **kwargs):
+        captured.update(kwargs)
+        return "/tmp/model"
+
+    monkeypatch.setattr("modely.batch.download_resource", fake_download)
+
+    result = run_batch_download(
+        {"downloads": [{"resource": "hf://models/org/model"}]},
+        local_dir="./models",
+        cache_dir="./cache",
+        token="secret",
+        include=["*.json"],
+        exclude=["*.bin"],
+        profile="minimal",
+        prefer="hf,ms",
+        fallback=True,
+        force_download=True,
+        backend="official",
+        with_lfs=True,
+        endpoint="https://example.test",
+        max_workers=4,
+        timeout=5,
+        retries=2,
+        checksum=True,
+        resume=False,
+    )
+
+    assert result["ok"] is True
+    assert captured == {
+        "cache_dir": "./cache",
+        "local_dir": "./models",
+        "token": "secret",
+        "include": ["*.json"],
+        "exclude": ["*.bin"],
+        "prefer": "hf,ms",
+        "fallback": True,
+        "force_download": True,
+        "backend": "official",
+        "with_lfs": True,
+        "profile": "minimal",
+        "endpoint": "https://example.test",
+        "max_workers": 4,
+        "timeout": 5,
+        "retries": 2,
+        "checksum": True,
+        "resume": False,
+    }
+
+
+def test_batch_download_cli_rejects_empty_filters(capsys, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["modely", "batch-download"])
+
+    with pytest.raises(SystemExit) as exc:
+        modely.main()
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "Missing search filter" in output
+    assert "--tag TAG" in output
+    assert "--task TASK" in output
+    assert "Example:" in output
+
+
+def test_batch_download_cli_yes_json_success(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["modely", "batch-download", "qwen", "--tag", "tag", "--yes", "--json"])
+    monkeypatch.setattr(
+        "modely.batch.search",
+        lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["tag"])],
+    )
+    monkeypatch.setattr("modely.batch.download_resource", lambda *a, **k: "/tmp/model")
+
+    modely.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["dry_run"] is False
+    assert output["ok"] is True
+    assert output["summary"]["succeeded"] == 1
+    assert output["results"][0]["path"] == "/tmp/model"

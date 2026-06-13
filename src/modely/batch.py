@@ -34,6 +34,10 @@ def create_batch_download_plan(
     full: bool = False,
 ) -> dict:
     """Create a dry-run batch download plan from tag-filtered search results."""
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    if search_limit is not None and search_limit <= 0:
+        raise ValueError("search_limit must be positive")
     required_tags = sorted(_normalize_tags(tags, required=False))
     if not required_tags and not _has_structured_filter(keyword=keyword, task=task, library=library, license=license, author=author, after=after, before=before):
         raise ValueError(
@@ -71,6 +75,12 @@ def create_batch_download_plan(
         "source": source,
         "repo_type": repo_type,
         "tags": required_tags,
+        "task": task,
+        "library": library,
+        "license": license,
+        "author": author,
+        "after": after,
+        "before": before,
         "search_count": len(fetched),
         "matched_count": len(matched),
         "selected_count": len(selected),
@@ -188,6 +198,9 @@ def _format_filters(result: dict) -> str:
         items.append(f"repo_type={result['repo_type']}")
     if result.get("tags"):
         items.append("tags=" + ",".join(result["tags"]))
+    for key in ("task", "library", "license", "author", "after", "before"):
+        if result.get(key):
+            items.append(f"{key}={result[key]}")
     return "; ".join(items)
 
 
