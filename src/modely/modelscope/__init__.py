@@ -628,10 +628,10 @@ def model_file_download(
                 local_dir=local_dir,
                 token=token,
             )
-        except Exception:
+        except Exception as exc:
             if backend == "official":
                 raise
-            print("Warning: Official ModelScope SDK failed, falling back to lightweight backend.")
+            print(f"Warning: Official ModelScope SDK failed, falling back to lightweight backend: {exc}")
 
     return _lightweight_model_file_download(
         model_id=model_id,
@@ -668,10 +668,10 @@ def dataset_file_download(
                 local_dir=local_dir,
                 token=token,
             )
-        except Exception:
+        except Exception as exc:
             if backend == "official":
                 raise
-            print("Warning: Official ModelScope SDK failed, falling back to lightweight backend.")
+            print(f"Warning: Official ModelScope SDK failed, falling back to lightweight backend: {exc}")
 
     return _lightweight_dataset_file_download(
         dataset_id=dataset_id,
@@ -864,6 +864,14 @@ def create_temporary_directory(repo_id: str, local_dir: str = None, cache_dir: s
     return temporary_cache_dir
 
 
+def _empty_snapshot_message(repo_id: str, repo_type: str, revision: str, endpoint: str) -> str:
+    hint = "ModelScope repository IDs usually use the owner/name form; verify the namespace and revision."
+    if repo_type == REPO_TYPE_DATASET:
+        hint = "Dataset snapshot listing may be unavailable; verify the dataset owner/name or use --file for a known file."
+    return (f"No files found for ModelScope {repo_type} '{repo_id}' at revision '{revision}' "
+            f"from {endpoint}. {hint}")
+
+
 def _lightweight_snapshot_download(
     repo_id: str,
     repo_type: str = REPO_TYPE_MODEL,
@@ -932,10 +940,10 @@ def _lightweight_snapshot_download(
             endpoint=endpoint
         )
         if not repo_files:
-            print("Warning: Unable to list dataset files (API not supported). "
-                  "Dataset snapshot download is not fully supported. "
-                  "Use 'modely-ai ms --repo-type dataset <repo_id> --file <file_path>' to download individual files.")
-            return None
+            raise FileNotFoundError(_empty_snapshot_message(repo_id, repo_type, revision, endpoint))
+
+    if not repo_files:
+        raise FileNotFoundError(_empty_snapshot_message(repo_id, repo_type, revision, endpoint))
 
     # Process each file and download
     download_files = [f for f in repo_files if f.get('Type') != 'tree']
@@ -1011,10 +1019,10 @@ def snapshot_download(
                 allow_patterns=allow_patterns,
                 ignore_patterns=ignore_patterns,
             )
-        except Exception:
+        except Exception as exc:
             if backend == "official":
                 raise
-            print("Warning: Official ModelScope SDK failed, falling back to lightweight backend.")
+            print(f"Warning: Official ModelScope SDK failed, falling back to lightweight backend: {exc}")
 
     return _lightweight_snapshot_download(
         repo_id=repo_id,

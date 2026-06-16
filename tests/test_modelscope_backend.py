@@ -147,3 +147,22 @@ class TestOfficialAdapter:
 
     def test_filter_none_removes_none_values(self):
         assert official_adapter._filter_none({"a": 1, "b": None}) == {"a": 1}
+
+
+def test_lightweight_snapshot_raises_when_model_file_list_empty(monkeypatch, tmp_path):
+    class FakeApi:
+        def __init__(self, token=None):
+            pass
+        def get_endpoint_for_read(self, *args, **kwargs):
+            return "https://modelscope.cn"
+        def get_valid_revision(self, *args, **kwargs):
+            return "master"
+        def get_cookies(self, *args, **kwargs):
+            return {}
+        def get_model_files(self, **kwargs):
+            return []
+
+    monkeypatch.setattr(ms_mod, "HubApi", FakeApi)
+
+    with pytest.raises(FileNotFoundError, match="owner/name"):
+        ms_mod.snapshot_download("missing-model", repo_type="model", cache_dir=str(tmp_path), backend="lightweight")
