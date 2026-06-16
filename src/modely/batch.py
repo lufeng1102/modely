@@ -98,7 +98,7 @@ def run_batch_download(
     include: Optional[list[str]] = None,
     exclude: Optional[list[str]] = None,
     profile: Optional[str] = None,
-    prefer: str = "ms,hf,github",
+    prefer: str = "default",
     fallback: bool = False,
     force_download: bool = False,
     backend: str = "auto",

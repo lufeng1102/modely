@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from .decision import decide_resource
 from .resolve import resolve_resource
 from .scan import scan_resource
 from .score import score_resource
@@ -24,6 +25,7 @@ def doctor_resource(
     threshold: float = 0.35,
     token: Optional[str] = None,
     endpoint: Optional[str] = None,
+    policy: Optional[dict] = None,
 ) -> dict:
     """Diagnose a resource or query and recommend the next action."""
     warnings = []
@@ -58,6 +60,15 @@ def doctor_resource(
         except Exception as exc:
             warnings.append(f"probe failed: {exc}")
 
+    decision = None
+    if recommended:
+        try:
+            decision = decide_resource(query, source=source, repo_type=repo_type, strategy=strategy,
+                                       limit=limit, threshold=threshold, token=token,
+                                       endpoint=endpoint, policy=policy, probe=probe)
+        except Exception as exc:
+            warnings.append(f"decision failed: {exc}")
+
     return {
         "query": query,
         "recommended": recommended,
@@ -66,6 +77,7 @@ def doctor_resource(
         "score": score,
         "scan": scan,
         "probes": probes,
+        "decision": decision,
         "warnings": warnings,
         "next_steps": [f"modely get {recommended}"] if recommended else [],
     }

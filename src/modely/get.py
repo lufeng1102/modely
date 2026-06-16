@@ -9,7 +9,12 @@ from .auth import get_token
 from .profiles import resolve_download_profile
 from .reliability import checksum_status, diagnose_download_error, normalize_download_options, retry_call
 from .types import RepoRef
-from .uri import normalize_repo_type, normalize_source, parse_modely_uri
+from .uri import format_modely_uri, normalize_repo_type, normalize_source, parse_modely_uri
+
+
+def _default_prefer(repo_type: str) -> str:
+    """Return the default source order for a repo type."""
+    return "ms,hf,kaggle,github" if repo_type == "dataset" else "ms,hf,github"
 
 
 def download_resource(
@@ -53,10 +58,23 @@ def download_resource(
             ref.revision = revision
         if file:
             ref.path = file
-        return _download_ref(ref, cache_dir=cache_dir, local_dir=local_dir, token=token,
-                             include=include, exclude=exclude, force_download=force_download,
-                             backend=backend, with_lfs=with_lfs, endpoint=endpoint,
-                             options=options)
+        if not fallback:
+            return _download_ref(ref, cache_dir=cache_dir, local_dir=local_dir, token=token,
+                                 include=include, exclude=exclude, force_download=force_download,
+                                 backend=backend, with_lfs=with_lfs, endpoint=endpoint,
+                                 options=options)
+        if prefer == "default":
+            prefer = _default_prefer(ref.repo_type)
+        errors = []
+        for candidate in _fallback_refs_for_uri(ref, prefer):
+            try:
+                return _download_ref(candidate, cache_dir=cache_dir, local_dir=local_dir, token=token,
+                                     include=include, exclude=exclude, force_download=force_download,
+                                     backend=backend, with_lfs=with_lfs, endpoint=endpoint,
+                                     options=options)
+            except Exception as exc:
+                errors.append(diagnose_download_error(candidate.source, exc))
+        raise Exception("All sources failed: " + "; ".join(errors))
 
     if source != "auto":
         ref = RepoRef(normalize_source(source), normalize_repo_type(repo_type, source), resource, revision, file)
@@ -65,11 +83,14 @@ def download_resource(
                              backend=backend, with_lfs=with_lfs, endpoint=endpoint,
                              options=options)
 
+    if prefer == "default":
+        prefer = _default_prefer(repo_type)
+
     if source == "auto" and prefer == "fastest":
         from .sources import rank_sources
-        ranked = [r.source for r in rank_sources(resource, candidates=["hf", "hf-mirror", "ms", "github"], timeout=options.timeout or 5) if r.ok]
+        ranked = [r.source for r in rank_sources(resource, candidates=["hf", "hf-mirror", "ms", "github", "kaggle"], timeout=options.timeout or 5) if r.ok]
         seen = set()
-        prefer = ",".join(s for s in ranked if not (s in seen or seen.add(s))) or "ms,hf,github"
+        prefer = ",".join(s for s in ranked if not (s in seen or seen.add(s))) or _default_prefer(repo_type)
 
     errors = []
     for src in [s.strip() for s in prefer.split(",") if s.strip()]:
@@ -216,3 +237,37 @@ def _local_download_path(result, remote_path: str, *, single_file: bool) -> Opti
     if single_file:
         return root
     return root / remote_path
+
+
+def _fallback_refs_for_uri(ref: RepoRef, prefer: str) -> list[RepoRef]:
+    refs = [ref]
+    for item in [s.strip() for s in prefer.split(",") if s.strip()]:
+        if "://" in item:
+            candidate = parse_modely_uri(item)
+            refs.append(candidate)
+            continue
+        source = normalize_source(item)
+        if source == ref.source:
+            continue
+        resolved = _resolve_equivalent_ref(ref, source)
+        refs.append(resolved or RepoRef(source, normalize_repo_type(ref.repo_type, source), ref.repo_id, ref.revision, ref.path))
+    seen = set()
+    unique = []
+    for item in refs:
+        key = (item.source, item.repo_type, item.repo_id, item.revision, item.path)
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
+def _resolve_equivalent_ref(ref: RepoRef, source: str) -> Optional[RepoRef]:
+    try:
+        from .resolve import resolve_resource
+        result = resolve_resource(format_modely_uri(ref), source=source, repo_type=normalize_repo_type(ref.repo_type, source), limit=5)
+        for candidate in result.candidates:
+            if candidate.source == source:
+                return RepoRef(candidate.source, candidate.repo_type, candidate.repo_id, ref.revision, ref.path)
+    except Exception:
+        return None
+    return None

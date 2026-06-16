@@ -12,6 +12,7 @@ _ENV_TOKENS = {
     "hf": ("HF_TOKEN", "HUGGINGFACE_TOKEN"),
     "ms": ("MODELSCOPE_TOKEN",),
     "github": ("GITHUB_TOKEN",),
+    "kaggle": ("KAGGLE_KEY",),
 }
 
 
@@ -70,6 +71,8 @@ def _ensure_private_config() -> None:
 def whoami(source: str, token: Optional[str] = None) -> str:
     """Return a best-effort identity string for a source token."""
     source = normalize_source(source)
+    if source == "kaggle":
+        return _kaggle_identity(token)
     token = get_token(source, token)
     if not token:
         return "No token configured"
@@ -89,3 +92,17 @@ def whoami(source: str, token: Optional[str] = None) -> str:
         except Exception:
             return "Authenticated token configured"
     return "Authenticated token configured"
+
+
+def _kaggle_identity(explicit_key: Optional[str] = None) -> str:
+    config_data = cache._load_config()
+    username = os.environ.get("KAGGLE_USERNAME") or config_data.get("kaggle_username")
+    key = explicit_key or os.environ.get("KAGGLE_KEY") or (config_data.get("tokens") or {}).get("kaggle")
+    if username and key:
+        return username
+    config = os.path.expanduser("~/.kaggle/kaggle.json")
+    if os.path.exists(config):
+        return "Kaggle credentials configured"
+    if key and not username:
+        return "Kaggle key configured; set KAGGLE_USERNAME or ~/.kaggle/kaggle.json"
+    return "No Kaggle credentials configured"

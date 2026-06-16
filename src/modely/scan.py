@@ -3,14 +3,26 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import List, Optional
 
 from .analyze import analyze_resource
 from .local import analyze_local_path
 from .files import format_file_size
+from .uri import parse_modely_uri
 from .types import AssetAnalysis, ScanFinding, ScanResult
 
-_PICKLE_SUFFIXES = (".pkl", ".pickle")
+_PICKLE_SUFFIXES = (".pkl", ".pickle", ".joblib")
+_ARCHIVE_SUFFIXES = (".zip", ".tar", ".tar.gz", ".tgz")
+_SUSPICIOUS_CODE_PATTERNS = {
+    "dynamic-exec": re.compile(r"\b(eval|exec)\s*\("),
+    "subprocess-call": re.compile(r"\b(subprocess|os\.system|Popen|check_output|run)\b"),
+    "network-call": re.compile(r"\b(requests\.|urllib\.|socket\.)"),
+    "pickle-load": re.compile(r"\b(pickle|joblib)\.(load|loads)\b"),
+    "dynamic-import": re.compile(r"\b(__import__|importlib\.import_module)\b"),
+}
+_MAX_CODE_SCAN_BYTES = 256_000
 _RISKY_WEIGHT_SUFFIXES = (".pt", ".pth", ".bin", ".ckpt")
 _CUSTOM_CODE_PREFIXES = ("modeling_", "configuration_", "tokenization_")
 _SCRIPT_SUFFIXES = (".sh", ".bat", ".ps1")
@@ -27,6 +39,7 @@ def scan_resource(
     exclude: Optional[List[str]] = None,
     profile: Optional[str] = None,
     deep: bool = True,
+    inspect_files: bool = False,
 ) -> ScanResult:
     """Scan a resource for metadata, safety, and reproducibility risks."""
     analysis = analyze_resource(
@@ -40,27 +53,29 @@ def scan_resource(
         deep=deep,
     )
     findings = find_scan_findings(analysis)
+    if inspect_files:
+        findings = _dedupe_findings(findings + _remote_content_findings(resource, analysis, revision=revision, token=token, endpoint=endpoint))
     return ScanResult(
         resource=resource,
         risk_level=risk_level(findings),
         findings=findings,
         summary=summarize_findings(findings),
         analysis=analysis,
-        metadata={"deep": deep, "profile": profile, "include": include, "exclude": exclude},
+        metadata={"deep": deep, "profile": profile, "include": include, "exclude": exclude, "content_inspected": inspect_files},
     )
 
 
 def scan_path(path: str, *, deep: bool = True) -> ScanResult:
     """Scan a local path without network access."""
     analysis = analyze_local_path(path, deep=deep)
-    findings = find_scan_findings(analysis)
+    findings = _dedupe_findings(find_scan_findings(analysis) + _local_content_findings(path))
     return ScanResult(
         resource=path,
         risk_level=risk_level(findings),
         findings=findings,
         summary=summarize_findings(findings),
         analysis=analysis,
-        metadata={"deep": deep, "local": True},
+        metadata={"deep": deep, "local": True, "content_inspected": True},
     )
 
 
@@ -77,6 +92,17 @@ def find_scan_findings(analysis: AssetAnalysis) -> list[ScanFinding]:
             "No license metadata detected.",
             recommendation="Confirm usage rights before using this asset commercially.",
         ))
+    else:
+        license_class = _license_class(info.license)
+        if license_class in {"non-commercial", "strong-copyleft", "weak-copyleft", "custom-restrictive", "unknown"}:
+            findings.append(ScanFinding(
+                f"license-{license_class}",
+                "medium" if license_class != "unknown" else "low",
+                "compliance",
+                f"License appears to be {license_class}.",
+                recommendation="Evaluate license compatibility with your intended use.",
+                metadata={"license": info.license, "class": license_class},
+            ))
     if not analysis.has_card:
         findings.append(ScanFinding(
             "missing-card",
@@ -160,6 +186,15 @@ def find_scan_findings(analysis: AssetAnalysis) -> list[ScanFinding]:
                 path=f.path,
                 recommendation="Review scripts before execution.",
             ))
+        if lower.endswith(_ARCHIVE_SUFFIXES) and ("../" in lower or lower.startswith("/")):
+            findings.append(ScanFinding(
+                "archive-path-traversal",
+                "high",
+                "security",
+                "Archive path suggests possible path traversal risk.",
+                path=f.path,
+                recommendation="Inspect archive contents before extraction.",
+            ))
 
     deep = (analysis.metadata or {}).get("deep") or {}
     if "large-weights" in deep.get("risk_flags", []) or deep.get("weight_bytes", 0) >= 10_000_000_000:
@@ -220,6 +255,106 @@ def _is_custom_code_path(path: str) -> bool:
     if name.startswith(_CUSTOM_CODE_PREFIXES):
         return True
     return "/" not in path and name not in {"setup.py", "__init__.py"}
+
+
+def _license_class(license_name: str) -> str:
+    value = (license_name or "").lower()
+    if not value or value in {"unknown", "other", "none"}:
+        return "unknown"
+    if any(token in value for token in ("cc-by-nc", "non-commercial", "noncommercial", "research-only")):
+        return "non-commercial"
+    if any(token in value for token in ("agpl", "gpl-", "gpl_", "gpl ")):
+        return "strong-copyleft"
+    if any(token in value for token in ("lgpl", "mpl", "epl")):
+        return "weak-copyleft"
+    if any(token in value for token in ("llama", "openrail", "rail", "qwen", "deepseek", "custom", "community")):
+        return "custom-restrictive"
+    if any(token in value for token in ("mit", "apache", "bsd", "isc", "cc-by", "unlicense")):
+        return "permissive"
+    return "other"
+
+
+def _remote_content_findings(resource: str, analysis: AssetAnalysis, *, revision=None, token=None, endpoint=None) -> list[ScanFinding]:
+    ref = parse_modely_uri(resource)
+    findings = []
+    inspected = 0
+    for f in analysis.files or []:
+        if inspected >= 20 or not _is_inspectable_path(f.path) or (f.size or 0) > _MAX_CODE_SCAN_BYTES:
+            continue
+        try:
+            text = _fetch_small_text(ref, f.path, revision=revision, token=token, endpoint=endpoint)
+        except Exception:
+            continue
+        if not text:
+            continue
+        inspected += 1
+        findings.extend(_content_findings(text, f.path))
+    return findings
+
+
+def _fetch_small_text(ref, path: str, *, revision=None, token=None, endpoint=None) -> str:
+    if ref.source == "hf":
+        from huggingface_hub import hf_hub_download
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as tmp:
+            local = hf_hub_download(ref.repo_id, path, repo_type=ref.repo_type, revision=revision or ref.revision or "main", token=token, endpoint=endpoint, local_dir=tmp)
+            return Path(local).read_text(errors="ignore")
+    if ref.source == "github":
+        import requests
+        headers = {"User-Agent": "modely-ai"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        url = f"https://raw.githubusercontent.com/{ref.repo_id}/{revision or ref.revision or 'main'}/{path}"
+        r = requests.get(url, headers=headers, timeout=20)
+        return r.text if r.status_code == 200 else ""
+    return ""
+
+
+def _is_inspectable_path(path: str) -> bool:
+    name = path.lower().rsplit("/", 1)[-1]
+    return name in {"requirements.txt", "setup.py", "pyproject.toml"} or name.startswith("readme") or name.endswith((".py", ".ipynb", ".sh", ".ps1", ".bat", ".md", ".txt"))
+
+
+def _content_findings(text: str, path: str) -> list[ScanFinding]:
+    findings = []
+    for finding_id, pattern in _SUSPICIOUS_CODE_PATTERNS.items():
+        if pattern.search(text):
+            findings.append(ScanFinding(finding_id, "medium", "security", "Suspicious executable code pattern detected.", path=path, recommendation="Review code before importing or executing this asset."))
+    return findings
+
+
+def _local_content_findings(path: str) -> list[ScanFinding]:
+    root = Path(path).expanduser().resolve()
+    candidates = [root] if root.is_file() else list(root.rglob("*")) if root.exists() else []
+    findings = []
+    for item in candidates:
+        if not item.is_file():
+            continue
+        rel = item.name if root.is_file() else str(item.relative_to(root))
+        findings.extend(_local_static_artifact_findings(item, rel))
+        if item.suffix.lower() not in {".py", ".ipynb", ".sh", ".ps1", ".bat"}:
+            continue
+        try:
+            if item.stat().st_size > _MAX_CODE_SCAN_BYTES:
+                continue
+            text = item.read_text(errors="ignore")
+        except OSError:
+            continue
+        findings.extend(_content_findings(text, rel))
+    return findings
+
+
+def _local_static_artifact_findings(path: Path, rel: str) -> list[ScanFinding]:
+    findings = []
+    try:
+        data = path.read_bytes()[:16]
+    except OSError:
+        return findings
+    if rel.lower().endswith(".safetensors") and len(data) < 8:
+        findings.append(ScanFinding("safetensors-header-invalid", "medium", "security", "Safetensors file is too small to contain a valid header.", path=rel, recommendation="Verify the safetensors artifact before use."))
+    if rel.lower().endswith(_PICKLE_SUFFIXES) and data.startswith(b"\x80"):
+        findings.append(ScanFinding("pickle-opcode", "high", "security", "Pickle protocol marker detected without deserializing.", path=rel, recommendation="Avoid loading pickle artifacts from untrusted sources."))
+    return findings
 
 
 def _dedupe_findings(findings: list[ScanFinding]) -> list[ScanFinding]:

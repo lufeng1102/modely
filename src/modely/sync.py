@@ -10,7 +10,7 @@ from .manifest import create_download_manifest
 
 def sync_resource(resource: str, *, local_dir: str, revision=None, include=None, exclude=None,
                   token=None, cache_dir=None, manifest=None, checksum=False, force_download=False,
-                  source="auto", prefer="ms,hf,github", profile=None, report=None,
+                  source="auto", prefer="default", profile=None, report=None,
                   analyze=False, compare_to=None, deep=False):
     """Ensure a remote resource is materialized locally. No upload is performed."""
     path = download_resource(

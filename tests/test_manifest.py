@@ -30,7 +30,8 @@ def test_read_manifest_tolerates_missing_metadata(tmp_path):
     lock = tmp_path / "old.lock"
     lock.write_text('{"source":"hf","repo_type":"model","repo_id":"gpt2","files":[]}')
     manifest = read_manifest(str(lock))
-    assert manifest.metadata == {}
+    assert manifest.metadata["schema_version"] == 1
+    assert manifest.metadata["requested_revision"] is None
 
 
 def test_create_lock_resolves_profile_and_metadata(tmp_path, monkeypatch):
@@ -50,7 +51,7 @@ def test_create_lock_resolves_profile_and_metadata(tmp_path, monkeypatch):
     manifest = create_lock("hf://models/gpt2", profile="minimal", endpoint="https://hf.example", output=str(output))
 
     assert captured["endpoint"] == "https://hf.example"
-    assert manifest.metadata["schema_version"] == 2
+    assert manifest.metadata["schema_version"] == 3
     assert manifest.metadata["profile"] == "minimal"
     assert manifest.metadata["resource"] == "hf://models/gpt2"
     assert manifest.metadata["file_count"] == 2

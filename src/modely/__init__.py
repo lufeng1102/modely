@@ -54,6 +54,20 @@ from .catalog import (diff_catalogs, export_catalog, list_catalog_snapshots, pri
 from .common import cache
 
 
+# Stable public Python API aliases. Avoid aliases that shadow submodules such as
+# modely.scan or modely.compare so monkeypatching and module imports stay compatible.
+download = download_resource
+catalog_scan = scan_catalog
+
+__all__ = [
+    "SearchResult", "download", "download_resource", "resolve_resource",
+    "compare_resources", "verify_mirror", "scan_resource", "scan_path",
+    "score_resource", "score_path", "create_lock", "install_lock", "validate_lock",
+    "catalog_scan", "scan_catalog", "choose_resource", "list_source_profiles",
+    "rank_sources", "get_repo_info", "list_repo_files",
+]
+
+
 def _format_file_size(size_bytes):
     """Format bytes into human-readable form."""
     return format_file_size(size_bytes)
@@ -193,8 +207,8 @@ def main():
 
     plan_parser = subparsers.add_parser("plan", help="Preview and summarize a download without downloading")
     plan_parser.add_argument("resource", type=str)
-    plan_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
-    plan_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space', 'tool'], default='model')
+    plan_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
+    plan_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space', 'tool', 'competition'], default='model')
     plan_parser.add_argument('--revision', type=str, default=None)
     plan_parser.add_argument('--include', nargs='+', default=None)
     plan_parser.add_argument('--exclude', nargs='+', default=None)
@@ -247,6 +261,7 @@ def main():
     scan_parser.add_argument('--profile', choices=list(PROFILES), default=None)
     scan_parser.add_argument('--no-deep', action='store_true', help='Disable deep metadata-derived scanning')
     scan_parser.add_argument('--local', action='store_true', help='Scan a local directory without network access')
+    scan_parser.add_argument('--inspect-files', action='store_true', help='Inspect small remote text/code files for suspicious patterns')
     scan_parser.add_argument('--fail-on', choices=['low', 'medium', 'high'], default=None, help='Exit nonzero if findings meet this severity')
     scan_parser.add_argument('--policy', default=None, help='JSON policy file for scan evaluation')
     scan_parser.add_argument('--json', action='store_true')
@@ -265,7 +280,7 @@ def main():
 
     get_parser = subparsers.add_parser("get", help="Download by URI or auto-selected source")
     get_parser.add_argument("resource", type=str)
-    get_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
+    get_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
     get_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space', 'tool'], default='model')
     get_parser.add_argument('--revision', type=str, default=None)
     get_parser.add_argument('--file', type=str, default=None)
@@ -274,7 +289,7 @@ def main():
     get_parser.add_argument('--token', type=str, default=None)
     get_parser.add_argument('--include', nargs='+', default=None)
     get_parser.add_argument('--exclude', nargs='+', default=None)
-    get_parser.add_argument('--prefer', type=str, default='ms,hf,github')
+    get_parser.add_argument('--prefer', type=str, default='default')
     get_parser.add_argument('--fallback', action='store_true')
     get_parser.add_argument('--force-download', action='store_true')
     get_parser.add_argument('--backend', choices=['auto', 'official', 'lightweight'], default='auto')
@@ -305,14 +320,15 @@ def main():
     capabilities_parser.add_argument('--json', action='store_true')
 
     login_parser = subparsers.add_parser("login", help="Store a source token")
-    login_parser.add_argument('source', choices=['hf', 'ms', 'github'])
+    login_parser.add_argument('source', choices=['hf', 'ms', 'github', 'kaggle'])
+    login_parser.add_argument('--username', help='Kaggle username; stored guidance only, prefer KAGGLE_USERNAME for runtime')
     login_group = login_parser.add_mutually_exclusive_group(required=True)
     login_group.add_argument('--token')
     login_group.add_argument('--stdin', action='store_true', help='Read token from stdin')
     logout_parser = subparsers.add_parser("logout", help="Remove a stored source token")
-    logout_parser.add_argument('source', choices=['hf', 'ms', 'github'])
+    logout_parser.add_argument('source', choices=['hf', 'ms', 'github', 'kaggle'])
     whoami_parser = subparsers.add_parser("whoami", help="Show token status/identity")
-    whoami_parser.add_argument('source', choices=['hf', 'ms', 'github'])
+    whoami_parser.add_argument('source', choices=['hf', 'ms', 'github', 'kaggle'])
     whoami_parser.add_argument('--token', default=None)
 
     lock_parser = subparsers.add_parser("lock", help="Create a JSON lockfile for a resource")
@@ -325,6 +341,8 @@ def main():
     lock_parser.add_argument('--output', '-o', default='modely.lock')
     lock_parser.add_argument('--token', default=None)
     lock_parser.add_argument('--alternatives', default=None, help='Comma-separated fallback source list to record in the lockfile')
+    lock_parser.add_argument('--strict', action='store_true', help='Fail if lock metadata is not fully reproducible')
+    lock_parser.add_argument('--require-checksums', action='store_true', help='Require SHA256 metadata for all selected files')
     lock_parser.add_argument('--json', action='store_true')
 
     install_parser = subparsers.add_parser("install", help="Install from a modely lockfile")
@@ -340,6 +358,8 @@ def main():
     validate_lock_parser.add_argument('-f', '--file', required=True)
     validate_lock_parser.add_argument('--local-dir', default=None)
     validate_lock_parser.add_argument('--checksum', action='store_true')
+    validate_lock_parser.add_argument('--strict', action='store_true', help='Require sizes and checksums to match')
+    validate_lock_parser.add_argument('--require-checksums', action='store_true', help='Fail when lock entries lack checksums')
     validate_lock_parser.add_argument('--json', action='store_true')
 
     catalog_parser = subparsers.add_parser("catalog", help="Inventory local or cached modely assets")
@@ -380,6 +400,7 @@ def main():
     doctor_parser.add_argument("query")
     doctor_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
     doctor_parser.add_argument('--repo-type', choices=['model', 'dataset', 'tool'], default='model')
+    doctor_parser.add_argument('--strategy', choices=['balanced', 'safest', 'fastest', 'freshest'], default='balanced')
     doctor_parser.add_argument('--probe', action='store_true')
     doctor_parser.add_argument('--limit', type=int, default=5)
     doctor_parser.add_argument('--threshold', type=float, default=0.35)
@@ -441,7 +462,7 @@ def main():
     batch_parser.add_argument('--include', nargs='+', default=None)
     batch_parser.add_argument('--exclude', nargs='+', default=None)
     batch_parser.add_argument('--profile', choices=list(PROFILES), default=None)
-    batch_parser.add_argument('--prefer', default='ms,hf,github')
+    batch_parser.add_argument('--prefer', default='default')
     batch_parser.add_argument('--fallback', action='store_true')
     batch_parser.add_argument('--force-download', action='store_true')
     batch_parser.add_argument('--backend', choices=['auto', 'official', 'lightweight'], default='auto')
@@ -469,8 +490,8 @@ def main():
         p.add_argument('--manifest', default=None)
         p.add_argument('--checksum', action='store_true')
         p.add_argument('--force-download', action='store_true')
-        p.add_argument('--source', choices=['hf', 'ms', 'github', 'auto'], default='auto')
-        p.add_argument('--prefer', default='ms,hf,github')
+        p.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
+        p.add_argument('--prefer', default='default')
         p.add_argument('--profile', choices=list(PROFILES), default=None)
         p.add_argument('--report', default=None, help='Write a JSON sync/mirror report')
         p.add_argument('--analyze', action='store_true', help='Include remote asset analysis in the report')
@@ -784,7 +805,7 @@ def main():
             else:
                 result = scan_resource(args.resource, revision=args.revision, token=args.token,
                                        endpoint=args.endpoint, include=args.include, exclude=args.exclude,
-                                       profile=args.profile, deep=not args.no_deep)
+                                       profile=args.profile, deep=not args.no_deep, inspect_files=args.inspect_files)
             policy_result = evaluate_scan_policy(result, fail_on=args.fail_on, policy=load_policy(args.policy)) if (args.fail_on or args.policy) else None
             if policy_result:
                 result.metadata["policy"] = policy_result
@@ -869,7 +890,18 @@ def main():
             print("Error: token is empty")
             sys.exit(1)
         save_token(args.source, token)
-        print(f"Token saved for {args.source}")
+        if args.source == "kaggle":
+            if getattr(args, "username", None):
+                config = cache._load_config()
+                config["kaggle_username"] = args.username
+                cache._save_config(config)
+                print("Kaggle credentials saved")
+            elif not os.environ.get("KAGGLE_USERNAME"):
+                print("Kaggle key saved. Set KAGGLE_USERNAME or configure ~/.kaggle/kaggle.json for Kaggle API authentication.")
+            else:
+                print("Kaggle key saved")
+        else:
+            print(f"Token saved for {args.source}")
     elif args.command == "logout":
         removed = delete_token(args.source)
         print(f"Token removed for {args.source}" if removed else f"No stored token for {args.source}")
@@ -879,7 +911,8 @@ def main():
         try:
             manifest = create_lock(args.resource, revision=args.revision, include=args.include,
                                    exclude=args.exclude, output=args.output, token=args.token,
-                                   profile=args.profile, endpoint=args.endpoint, alternatives=args.alternatives)
+                                   profile=args.profile, endpoint=args.endpoint, alternatives=args.alternatives,
+                                   strict=args.strict, require_checksums=args.require_checksums)
             if args.json:
                 print(json.dumps(manifest.to_dict(), indent=2, ensure_ascii=False))
             else:
@@ -898,7 +931,8 @@ def main():
             sys.exit(1)
     elif args.command == "validate-lock":
         try:
-            result = validate_lock(args.file, local_dir=args.local_dir, checksum=args.checksum)
+            result = validate_lock(args.file, local_dir=args.local_dir, checksum=args.checksum,
+                                   strict=args.strict, require_checksums=args.require_checksums)
             print_lock_validation(result, as_json=args.json)
             if not result["ok"]:
                 sys.exit(1)
@@ -963,7 +997,7 @@ def main():
     elif args.command == "doctor":
         try:
             print_doctor_report(doctor_resource(args.query, source=args.source, repo_type=args.repo_type,
-                                                probe=args.probe, limit=args.limit, threshold=args.threshold,
+                                                strategy=args.strategy, probe=args.probe, limit=args.limit, threshold=args.threshold,
                                                 token=args.token, endpoint=args.endpoint), as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")

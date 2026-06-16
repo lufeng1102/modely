@@ -46,6 +46,7 @@ def resolve_resource(
         confidence, signals = score_candidate(search_query, result, group)
         if confidence < threshold:
             continue
+        evidence = _candidate_evidence(search_query, result, group, confidence, signals)
         candidates.append(
             ResolveCandidate(
                 result=result.to_dict(),
@@ -55,6 +56,7 @@ def resolve_resource(
                 modely_uri=result.modely_uri,
                 confidence=confidence,
                 signals=signals,
+                metadata={"evidence": evidence},
             )
         )
 
@@ -134,6 +136,24 @@ def score_candidate(query: str, result: SearchResult, group: dict) -> tuple[floa
         signals.append("popularity")
 
     return round(min(score, 1.0), 3), signals
+
+
+def _candidate_evidence(query: str, result: SearchResult, group: dict, confidence: float, signals: list[str]) -> dict:
+    group_results = group.get("results", [])
+    sources = sorted(set(group.get("sources", [])))
+    return {
+        "query_normalized": normalize_resolve_text(query),
+        "name_normalized": normalize_resolve_text(result.name or result.id),
+        "id_normalized": normalize_resolve_text(result.id),
+        "confidence": confidence,
+        "signals": signals,
+        "group_sources": sources,
+        "group_size": len(group_results),
+        "author": result.author,
+        "task": result.pipeline_tag,
+        "license": result.license,
+        "popularity": _popularity(result.to_dict()),
+    }
 
 
 def format_resolve_json(result: ResolveResult) -> str:

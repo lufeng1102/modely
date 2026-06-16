@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from pathlib import PurePosixPath
 from typing import Optional
 
 from .analyze import analyze_resource
@@ -109,11 +111,35 @@ def _compare_files(left_files, right_files) -> dict:
                 "left_sha256": left.sha256,
                 "right_sha256": right.sha256,
             })
+    common = left_paths & right_paths
+    union = left_paths | right_paths
+    checksum_matches = []
+    checksum_mismatches = []
+    lfs_matches = []
+    lfs_mismatches = []
+    for path in sorted(common):
+        left = left_by_path[path]
+        right = right_by_path[path]
+        if left.sha256 and right.sha256:
+            target = checksum_matches if left.sha256 == right.sha256 else checksum_mismatches
+            target.append(path if target is checksum_matches else {"path": path, "left_sha256": left.sha256, "right_sha256": right.sha256})
+        left_oid = (left.metadata or {}).get("lfs_oid") or (left.metadata or {}).get("oid")
+        right_oid = (right.metadata or {}).get("lfs_oid") or (right.metadata or {}).get("oid")
+        if left_oid and right_oid:
+            target = lfs_matches if left_oid == right_oid else lfs_mismatches
+            target.append(path if target is lfs_matches else {"path": path, "left_oid": left_oid, "right_oid": right_oid})
     return {
         "added_files": sorted(right_paths - left_paths),
         "removed_files": sorted(left_paths - right_paths),
-        "common_files": len(left_paths & right_paths),
+        "common_files": len(common),
+        "path_overlap_ratio": round(len(common) / len(union), 3) if union else 1.0,
+        "same_name_different_path": _same_name_different_path(left_paths, right_paths),
         "changed_size_files": changed,
+        "checksum_matches": checksum_matches,
+        "checksum_mismatches": checksum_mismatches,
+        "lfs_matches": lfs_matches,
+        "lfs_mismatches": lfs_mismatches,
+        "shards": _compare_shards(left_by_path, right_by_path),
     }
 
 
@@ -122,6 +148,8 @@ def _compare_cards(left, right) -> dict:
     right_norm = ((right.card.metadata or {}).get("normalized") if right.card else {}) or {}
     left_keys = set(left_norm)
     right_keys = set(right_norm)
+    semantic_keys = sorted({"license", "pipeline_tag", "library_name", "language", "datasets", "base_model"} & (left_keys | right_keys))
+    semantic_delta = {key: {"left": left_norm.get(key), "right": right_norm.get(key)} for key in semantic_keys if left_norm.get(key) != right_norm.get(key)}
     return {
         "left_has_card": left.has_card,
         "right_has_card": right.has_card,
@@ -130,6 +158,7 @@ def _compare_cards(left, right) -> dict:
         "license_changed": (left.info.license or None) != (right.info.license or None),
         "shared_card_keys": sorted(left_keys & right_keys),
         "different_card_keys": {"left_only": sorted(left_keys - right_keys), "right_only": sorted(right_keys - left_keys)},
+        "semantic_delta": semantic_delta,
     }
 
 
@@ -145,7 +174,65 @@ def _compare_formats(left, right, *, include_deep: bool = False) -> dict:
     if include_deep:
         result["left_deep"] = (left.metadata or {}).get("deep")
         result["right_deep"] = (right.metadata or {}).get("deep")
+    if include_deep:
+        result["semantic"] = {
+            "both_have_config": left.has_config and right.has_config,
+            "both_have_tokenizer": left.has_tokenizer and right.has_tokenizer,
+            "both_have_card": left.has_card and right.has_card,
+            "config": _semantic_file_presence(left.files, right.files, ("config.json", "generation_config.json", "params.json")),
+            "tokenizer": _semantic_file_presence(left.files, right.files, ("tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "vocab.txt", "merges.txt")),
+            "card": _semantic_card_presence(left, right),
+        }
     return result
+
+
+def _semantic_file_presence(left_files, right_files, names) -> dict:
+    left = sorted(f.path for f in left_files if f.path.rsplit("/", 1)[-1] in names)
+    right = sorted(f.path for f in right_files if f.path.rsplit("/", 1)[-1] in names)
+    return {"left": left, "right": right, "matches": bool(left) and left == right}
+
+
+def _semantic_card_presence(left, right) -> dict:
+    left_norm = ((left.card.metadata or {}).get("normalized") if left.card else {}) or {}
+    right_norm = ((right.card.metadata or {}).get("normalized") if right.card else {}) or {}
+    keys = sorted(set(left_norm) | set(right_norm))
+    return {"shared_keys": sorted(set(left_norm) & set(right_norm)), "delta": {k: {"left": left_norm.get(k), "right": right_norm.get(k)} for k in keys if left_norm.get(k) != right_norm.get(k)}}
+
+
+def _same_name_different_path(left_paths, right_paths) -> list[dict]:
+    left_by_name = {}
+    for path in left_paths:
+        left_by_name.setdefault(PurePosixPath(path).name, set()).add(path)
+    right_by_name = {}
+    for path in right_paths:
+        right_by_name.setdefault(PurePosixPath(path).name, set()).add(path)
+    matches = []
+    for name in sorted(set(left_by_name) & set(right_by_name)):
+        left_only = sorted(left_by_name[name] - right_by_name[name])
+        right_only = sorted(right_by_name[name] - left_by_name[name])
+        if left_only and right_only:
+            matches.append({"name": name, "left_paths": left_only, "right_paths": right_only})
+    return matches
+
+
+def _compare_shards(left_by_path, right_by_path) -> dict:
+    def signature(items):
+        sizes = [f.size or 0 for f in items.values() if _is_weight_path(f.path)]
+        return {"count": len(sizes), "total_size": sum(sizes), "size_pattern": sorted(Counter(sizes).items())}
+    left = signature(left_by_path)
+    right = signature(right_by_path)
+    return {"left": left, "right": right, "matches": left == right, "index_files": _index_files(left_by_path, right_by_path)}
+
+
+def _index_files(left_by_path, right_by_path) -> dict:
+    suffixes = (".safetensors.index.json", ".bin.index.json")
+    left = sorted(p for p in left_by_path if p.lower().endswith(suffixes))
+    right = sorted(p for p in right_by_path if p.lower().endswith(suffixes))
+    return {"left": left, "right": right, "matches": left == right}
+
+
+def _is_weight_path(path: str) -> bool:
+    return path.lower().endswith((".safetensors", ".bin", ".pt", ".pth", ".ckpt", ".gguf", ".onnx", ".h5", ".msgpack"))
 
 
 def _print_detail_summary(summary: dict) -> None:

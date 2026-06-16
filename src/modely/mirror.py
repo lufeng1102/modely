@@ -24,9 +24,19 @@ def verify_mirror(left: str, right: str, *, token=None, deep: bool = True) -> di
         drift_reasons.append("license differs")
     if formats.get("format_delta"):
         drift_reasons.append("weight formats differ")
-    status = "drifted" if drift_reasons else "ok"
+    confidence = _mirror_confidence(files, card, formats, drift_reasons)
+    if drift_reasons:
+        status = "drifted"
+    elif confidence >= 0.85:
+        status = "ok"
+    elif confidence >= 0.6:
+        status = "likely"
+    else:
+        status = "uncertain"
     return {
         "status": status,
+        "confidence": confidence,
+        "evidence": {"files": files, "card": card, "formats": formats},
         "left": left,
         "right": right,
         "reasons": drift_reasons,
@@ -48,6 +58,22 @@ def print_mirror_verification(result: dict, *, as_json: bool = False) -> None:
             print(f"  - {reason}")
     for rec in result.get("recommendations") or []:
         print(f"Recommendation: {rec}")
+
+
+def _mirror_confidence(files: dict, card: dict, formats: dict, reasons: list[str]) -> float:
+    if reasons:
+        return 0.2
+    score = 0.4
+    overlap = files.get("path_overlap_ratio")
+    if overlap is not None:
+        score += 0.3 * overlap
+    if files.get("checksum_matches") or files.get("lfs_matches"):
+        score += 0.2
+    if formats and not formats.get("format_delta"):
+        score += 0.1
+    if card and not card.get("license_changed"):
+        score += 0.05
+    return round(min(score, 1.0), 3)
 
 
 def _mirror_recommendations(reasons: list[str]) -> list[str]:

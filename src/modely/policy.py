@@ -25,6 +25,10 @@ def evaluate_scan_policy(scan: ScanResult, *, fail_on: Optional[str] = None, pol
     ignored_ids = set(policy.get("ignore_finding_ids") or [])
     deny_ids = set(policy.get("deny_finding_ids") or [])
     allow_licenses = {str(v).lower() for v in (policy.get("allow_licenses") or [])}
+    deny_licenses = {str(v).lower() for v in (policy.get("deny_licenses") or [])}
+    deny_sources = {str(v).lower() for v in (policy.get("deny_sources") or [])}
+    require_checksums = bool(policy.get("require_checksums"))
+    min_score = policy.get("min_score")
     violations = []
     ignored = []
 
@@ -41,6 +45,16 @@ def evaluate_scan_policy(scan: ScanResult, *, fail_on: Optional[str] = None, pol
     license_name = (scan.analysis.info.license if scan.analysis and scan.analysis.info else None) or ""
     if allow_licenses and license_name.lower() not in allow_licenses:
         violations.append({"type": "license", "license": license_name, "allowed": sorted(allow_licenses)})
+    if deny_licenses and license_name.lower() in deny_licenses:
+        violations.append({"type": "deny_license", "license": license_name})
+    source = (scan.analysis.info.source if scan.analysis and scan.analysis.info else "").lower()
+    if deny_sources and source in deny_sources:
+        violations.append({"type": "deny_source", "source": source})
+    if require_checksums and scan.analysis and any(not f.sha256 for f in (scan.analysis.files or [])):
+        violations.append({"type": "require_checksums"})
+    score_value = (scan.metadata or {}).get("score")
+    if min_score is not None and score_value is not None and score_value < min_score:
+        violations.append({"type": "min_score", "score": score_value, "minimum": min_score})
 
     return {
         "ok": not violations,
@@ -56,6 +70,8 @@ def evaluate_catalog_policy(report: CatalogReport, *, fail_on: Optional[str] = N
     threshold = fail_on or policy.get("fail_on")
     ignored_ids = set(policy.get("ignore_finding_ids") or [])
     deny_ids = set(policy.get("deny_finding_ids") or [])
+    deny_sources = {str(v).lower() for v in (policy.get("deny_sources") or [])}
+    min_score = policy.get("min_score")
     blocked = []
     allowed = []
     for entry in report.entries:
@@ -68,6 +84,11 @@ def evaluate_catalog_policy(report: CatalogReport, *, fail_on: Optional[str] = N
         for fid in finding_ids:
             if fid in deny_ids:
                 violations.append({"type": "deny_finding", "finding_id": fid})
+        if deny_sources and (entry.source or "").lower() in deny_sources:
+            violations.append({"type": "deny_source", "source": entry.source})
+        score_value = (entry.score or {}).get("score") if isinstance(entry.score, dict) else None
+        if min_score is not None and score_value is not None and score_value < min_score:
+            violations.append({"type": "min_score", "score": score_value, "minimum": min_score})
         item = {"id": entry.id, "repo_id": entry.repo_id, "local_path": entry.local_path, "risk_level": risk, "finding_ids": finding_ids, "violations": violations}
         if violations:
             blocked.append(item)
