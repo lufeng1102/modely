@@ -86,6 +86,7 @@ modely-ai catalog export catalog.json --output catalog.csv
 modely-ai report ./models/qwen2.5-7b --format markdown
 modely-ai benchmark qwen2.5-7b --source hf,ms --json
 modely-ai cache dedupe --dry-run --json
+modely-ai cache serve --open
 ```
 
 #### Download from Hugging Face
@@ -100,7 +101,7 @@ Download a specific file from a repository:
 modely-ai hf bert-base-uncased --file config.json
 ```
 
-Download with specific options:
+Download with specific options (repository type defaults to `auto`; pass an explicit type when needed):
 ```bash
 modely-ai hf facebook/opt-2.7b --repo-type model --revision v1.1.0 --local-dir ./models
 ```
@@ -147,7 +148,7 @@ Download a specific file:
 modely-ai ms owner/model-name --file config.json
 ```
 
-Download a dataset:
+Download a dataset (repository type also accepts `auto`, which starts from the source default):
 ```bash
 modely-ai ms owner/dataset-name --repo-type dataset
 ```
@@ -287,6 +288,7 @@ modely-ai report hf://models/gpt2 --format markdown
 modely-ai report ./models/gpt2 --format html --output gpt2-report.html
 modely-ai benchmark gpt2 --source hf,ms --json
 modely-ai cache dedupe --dry-run --json
+modely-ai cache serve --open
 
 # Download-only local sync/mirror (no upload)
 modely-ai sync hf://models/gpt2 --local-dir ./mirror/gpt2 --include "*.json"
@@ -346,8 +348,8 @@ modely-ai search qwen --sort lastModified --direction desc
 modely-ai search gpt2 --source hf --json | jq '.[].id'
 modely-ai search qwen --source all --json | jq '.[].modely_uri'
 
-# Search all supported platforms simultaneously
-modely-ai search qwen --source all
+# Search all supported platforms simultaneously; --repo-type auto searches models and datasets where supported
+modely-ai search qwen --source all --repo-type auto
 
 # Preview tag-matched batch downloads (dry-run by default)
 modely-ai batch-download qwen --source hf --repo-type model --tag text-generation --tag transformers --limit 5 --profile inference
@@ -368,7 +370,7 @@ modely-ai resolve qwen2.5-7b-instruct
 modely-ai resolve qwen2.5-7b-instruct --source all --json
 ```
 
-Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. JSON output uses a stable cross-source schema with fields such as `id`, `source`, `repo_type`, `modely_uri`, `name`, `summary`, `downloads`, `likes`, `stars`, `forks`, `size_bytes`, tags, license, and source-specific `metadata`. The keyword argument is optional — omit it to browse all repositories. GitHub search maps stars to likes and forks to downloads. Kaggle search is best-effort and requires the Kaggle package/credentials to be configured in the local environment.
+Search results are displayed as a table showing source, model ID, task type, downloads, likes, created date, last modified date, and the repository's web page URL. JSON output uses a stable cross-source schema with fields such as `id`, `source`, `repo_type`, `modely_uri`, `name`, `summary`, `downloads`, `likes`, `stars`, `forks`, `size_bytes`, tags, license, and source-specific `metadata`. The keyword argument is optional — omit it to browse all repositories. `--repo-type auto` searches models and datasets on Hugging Face and ModelScope, uses `tool` for GitHub repositories, and uses `dataset` for Kaggle. GitHub search maps stars to likes and forks to downloads. Kaggle search is best-effort and requires the Kaggle package/credentials to be configured in the local environment.
 
 
 
@@ -616,7 +618,7 @@ modely-ai hf <repo_id> [OPTIONS]
 
 Options:
 - `--file FILE`: Specific file path to download from the repository
-- `--repo-type {model,dataset,space}`: Type of repository (default: model)
+- `--repo-type {auto,model,dataset,space}`: Type of repository (default: auto; explicit `dataset`/`space` is available when needed)
 - `--revision REVISION`: Revision of the model (default: main)
 - `--cache-dir DIR`: Cache directory for downloaded files
 - `--local-dir DIR`: Local directory to download files to
@@ -636,7 +638,7 @@ modely-ai ms <repo_id> [OPTIONS]
 
 Options:
 - `--file FILE`: Specific file path to download from the repository
-- `--repo-type {model,dataset}`: Type of repository (default: model)
+- `--repo-type {auto,model,dataset}`: Type of repository (default: auto; explicit `dataset` is available when needed)
 - `--revision REVISION`: Revision of the model (default: master)
 - `--cache-dir DIR`: Cache directory for downloaded files
 - `--local-dir DIR`: Local directory to download files to
@@ -744,7 +746,7 @@ Search is available across Hugging Face (models and datasets), ModelScope (model
 
 Options:
 - `--source, -s {hf,ms,github,kaggle,all}`: Platform to search (default: all)
-- `--repo-type, -t {model,dataset,tool}`: Type of repository (default: model; GitHub uses `tool`)
+- `--repo-type, -t {auto,model,dataset,tool}`: Type of repository (default: auto; HF/MS auto searches models and datasets, GitHub uses `tool`)
 - `--task TASK`: Filter by task type (e.g., text-classification, text-generation)
 - `--library LIBRARY`: Filter by library, HF only (e.g., transformers, pytorch)
 - `--license LICENSE`: Filter by license, HF only
