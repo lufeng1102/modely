@@ -1337,6 +1337,22 @@ class TestSearchOrchestrator:
         assert len(results) == 1
         assert results[0].id == "org/dataset"
 
+    def test_auto_repo_type_fans_out_to_supported_types(self, monkeypatch):
+        calls = {"hf": [], "ms": [], "github": 0, "kaggle": []}
+
+        monkeypatch.setattr(search_mod, "search_huggingface", lambda **kwargs: calls["hf"].append(kwargs["repo_type"]) or [SearchResult(f"hf/{kwargs['repo_type']}", "hf", kwargs["repo_type"])])
+        monkeypatch.setattr(search_mod, "search_modelscope", lambda **kwargs: calls["ms"].append(kwargs["repo_type"]) or [SearchResult(f"ms/{kwargs['repo_type']}", "ms", kwargs["repo_type"])])
+        monkeypatch.setattr(search_mod, "search_github", lambda **kwargs: calls.__setitem__("github", calls["github"] + 1) or [SearchResult("owner/repo", "github", "tool")])
+        monkeypatch.setattr(search_mod, "search_kaggle", lambda **kwargs: calls["kaggle"].append(kwargs["repo_type"]) or [SearchResult("owner/dataset", "kaggle", kwargs["repo_type"])])
+
+        results = search("test", source="all", repo_type="auto")
+
+        assert calls["hf"] == ["model", "dataset"]
+        assert calls["ms"] == ["model", "dataset"]
+        assert calls["github"] == 1
+        assert calls["kaggle"] == ["dataset"]
+        assert {result.repo_type for result in results} >= {"model", "dataset", "tool"}
+
     def test_default_sort_is_downloads(self, monkeypatch):
         """When no sort specified, default to downloads descending."""
         low = _mock_model_info(id="low", downloads=100)

@@ -17,6 +17,7 @@ from .gh_search import search_github
 from .kaggle_search import search_kaggle
 from .display import format_table, format_json
 from .dedupe import dedupe_results, format_grouped_json, format_grouped_table
+from ..uri import repo_type_candidates
 
 
 # Sort field mapping for cross-platform result sorting
@@ -100,10 +101,16 @@ def search(
         List of ``SearchResult`` objects.
     """
 
+    def _fetch_for_repo_types(source_name, fetch):
+        results = []
+        for candidate_type in repo_type_candidates(repo_type, source_name):
+            results.extend(fetch(candidate_type))
+        return results
+
     def _fetch_hf():
-        return search_huggingface(
+        return _fetch_for_repo_types("hf", lambda candidate_type: search_huggingface(
             keyword=keyword,
-            repo_type=repo_type,
+            repo_type=candidate_type,
             task=task,
             library=library,
             license=license,
@@ -112,21 +119,21 @@ def search(
             limit=limit,
             author=author,
             full=full,
-        )
+        ))
 
     def _fetch_ms():
         if library:
             warnings.warn("--library filter is not supported on ModelScope, ignoring.")
         if license:
             warnings.warn("--license filter is not supported on ModelScope, ignoring.")
-        return search_modelscope(
+        return _fetch_for_repo_types("ms", lambda candidate_type: search_modelscope(
             keyword=keyword,
-            repo_type=repo_type,
+            repo_type=candidate_type,
             task=task,
             sort=sort,
             direction=direction,
             limit=limit,
-        )
+        ))
 
     def _fetch_gh():
         if library:
@@ -145,7 +152,7 @@ def search(
             warnings.warn("--library filter is not supported on Kaggle, ignoring.")
         if license:
             warnings.warn("--license filter is not supported on Kaggle, ignoring.")
-        return search_kaggle(keyword=keyword, repo_type=repo_type, limit=limit)
+        return search_kaggle(keyword=keyword, repo_type=repo_type_candidates(repo_type, "kaggle")[0], limit=limit)
 
     all_results: List[SearchResult] = []
 

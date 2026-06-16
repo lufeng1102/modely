@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import List, Optional
 
 from .auth import get_token
+from .common import cache as modely_cache
 from .profiles import resolve_download_profile
 from .reliability import checksum_status, diagnose_download_error, normalize_download_options, retry_call
 from .types import RepoRef
-from .uri import format_modely_uri, normalize_repo_type, normalize_source, parse_modely_uri
+from .uri import concrete_repo_type, format_modely_uri, normalize_repo_type, normalize_source, parse_modely_uri
 
 
 def _default_prefer(repo_type: str) -> str:
@@ -51,6 +52,7 @@ def download_resource(
         resume=resume,
         max_workers=max_workers,
     )
+    cache_dir = modely_cache.get_cache_dir(cache_dir)
 
     if "://" in resource:
         ref = parse_modely_uri(resource)
@@ -77,14 +79,14 @@ def download_resource(
         raise Exception("All sources failed: " + "; ".join(errors))
 
     if source != "auto":
-        ref = RepoRef(normalize_source(source), normalize_repo_type(repo_type, source), resource, revision, file)
+        ref = RepoRef(normalize_source(source), concrete_repo_type(repo_type, source), resource, revision, file)
         return _download_ref(ref, cache_dir=cache_dir, local_dir=local_dir, token=token,
                              include=include, exclude=exclude, force_download=force_download,
                              backend=backend, with_lfs=with_lfs, endpoint=endpoint,
                              options=options)
 
     if prefer == "default":
-        prefer = _default_prefer(repo_type)
+        prefer = _default_prefer(concrete_repo_type(repo_type, "hf"))
 
     if source == "auto" and prefer == "fastest":
         from .sources import rank_sources
@@ -95,7 +97,7 @@ def download_resource(
     errors = []
     for src in [s.strip() for s in prefer.split(",") if s.strip()]:
         try:
-            ref = RepoRef(normalize_source(src), normalize_repo_type(repo_type, src), resource, revision, file)
+            ref = RepoRef(normalize_source(src), concrete_repo_type(repo_type, src), resource, revision, file)
             return _download_ref(ref, cache_dir=cache_dir, local_dir=local_dir, token=token,
                                  include=include, exclude=exclude, force_download=force_download,
                                  backend=backend, with_lfs=with_lfs, endpoint=endpoint,

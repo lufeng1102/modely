@@ -18,14 +18,15 @@ _REPO_TYPE_ALIASES = {
     "tools": "tool",
     "repo": "tool",
     "repos": "tool",
+    "auto": "auto",
     "competition": "competition",
     "competitions": "competition",
 }
-_DEFAULT_REPO_TYPE = {
-    "hf": "model",
-    "ms": "model",
-    "github": "tool",
-    "kaggle": "dataset",
+_AUTO_REPO_TYPE_CANDIDATES = {
+    "hf": ["model", "dataset"],
+    "ms": ["model", "dataset"],
+    "github": ["tool"],
+    "kaggle": ["dataset"],
 }
 
 
@@ -43,13 +44,31 @@ def normalize_source(source: str) -> str:
 def normalize_repo_type(repo_type: str | None, source: str = "hf") -> str:
     """Normalize repo type aliases such as models -> model."""
     if repo_type is None:
-        return _DEFAULT_REPO_TYPE[normalize_source(source)]
+        return _AUTO_REPO_TYPE_CANDIDATES[normalize_source(source)][0]
     normalized = _REPO_TYPE_ALIASES.get(repo_type)
     if normalized is None:
         raise ValueError(f"Unsupported repo type: {repo_type}")
-    if source == "github" and normalized not in {"tool"}:
+    if source == "github" and normalized not in {"tool", "auto"}:
         return "tool"
     return normalized
+
+
+def concrete_repo_type(repo_type: str | None, source: str = "hf") -> str:
+    """Resolve auto/default repo types to a concrete backend repo type."""
+    src = normalize_source(source)
+    normalized = normalize_repo_type(repo_type, src)
+    if normalized == "auto":
+        return _AUTO_REPO_TYPE_CANDIDATES[src][0]
+    return normalized
+
+
+def repo_type_candidates(repo_type: str | None, source: str) -> list[str]:
+    """Return concrete repo types to try for a source."""
+    src = normalize_source(source)
+    normalized = normalize_repo_type(repo_type, src)
+    if normalized != "auto":
+        return [concrete_repo_type(normalized, src)]
+    return list(_AUTO_REPO_TYPE_CANDIDATES[src])
 
 
 def parse_modely_uri(value: str, *, source: str | None = None, repo_type: str | None = None) -> RepoRef:

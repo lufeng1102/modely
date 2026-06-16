@@ -51,7 +51,9 @@ from .score import print_asset_score, score_path, score_resource
 from .sync import sync_resource
 from .catalog import (diff_catalogs, export_catalog, list_catalog_snapshots, print_catalog_diff,
                       print_catalog_report, read_catalog_report, scan_catalog, snapshot_catalog, write_catalog_report)
+from .uri import concrete_repo_type
 from .common import cache
+from .cache_web import serve_cache_browser
 
 
 # Stable public Python API aliases. Avoid aliases that shadow submodules such as
@@ -66,6 +68,81 @@ __all__ = [
     "catalog_scan", "scan_catalog", "choose_resource", "list_source_profiles",
     "rank_sources", "get_repo_info", "list_repo_files",
 ]
+
+
+_COMMAND_GROUPS = [
+    (
+        "Download and sync",
+        [
+            ("hf", "Download models or datasets from Hugging Face"),
+            ("ms", "Download models or datasets from ModelScope"),
+            ("github", "Download repositories, files, or release assets from GitHub"),
+            ("get", "Download by modely URI or auto-selected source"),
+            ("batch-download", "Search, preview, and batch download matching resources"),
+            ("sync", "Download-only local sync of a resource"),
+            ("mirror", "Alias for sync"),
+        ],
+    ),
+    (
+        "Query and evaluate",
+        [
+            ("info", "Show repository metadata for a modely URI"),
+            ("files", "List and summarize repository files for a modely URI"),
+            ("plan", "Dry-run a download plan without downloading"),
+            ("card", "Fetch and parse a model, dataset, or repository card"),
+            ("analyze", "Analyze metadata, files, cards, and weight formats"),
+            ("score", "Score resource health from metadata and file lists"),
+            ("scan", "Scan metadata, safety, and reproducibility risks"),
+            ("compare", "Deep-compare two explicit modely resources"),
+            ("resolve", "Find likely equivalent resources across sources"),
+        ],
+    ),
+    (
+        "Search and choose sources",
+        [
+            ("search", "Search for models, datasets, and AI/ML repositories"),
+            ("doctor", "Diagnose and recommend a modely resource"),
+            ("choose", "Choose the best source for a resource query"),
+            ("sources", "List or probe source endpoints"),
+            ("capabilities", "Show source/backend capability support"),
+        ],
+    ),
+    (
+        "Reproducibility and inventory",
+        [
+            ("lock", "Create a JSON lockfile for a resource"),
+            ("install", "Install files from a modely lockfile"),
+            ("validate-lock", "Validate a lockfile against local files"),
+            ("catalog", "Inventory local or cached modely assets"),
+            ("verify-mirror", "Verify two resources appear mirror-equivalent"),
+            ("report", "Generate a resource report"),
+            ("benchmark", "Check source endpoint availability and latency"),
+        ],
+    ),
+    (
+        "Account, monitoring, and cache",
+        [
+            ("login", "Store a source token"),
+            ("logout", "Remove a stored source token"),
+            ("whoami", "Show token status or identity"),
+            ("watch", "Watch repositories and download updates"),
+            ("cache", "Manage the modely cache"),
+        ],
+    ),
+]
+
+
+_COMMAND_HELP = {command: help_text for _, commands in _COMMAND_GROUPS for command, help_text in commands}
+
+
+def _format_command_groups() -> str:
+    lines = ["Command categories:"]
+    for title, commands in _COMMAND_GROUPS:
+        lines.append(f"  {title}:")
+        width = max(len(command) for command, _ in commands)
+        for command, help_text in commands:
+            lines.append(f"    {command:<{width}}  {help_text}")
+    return "\n".join(lines)
 
 
 def _format_file_size(size_bytes):
@@ -110,14 +187,19 @@ def _list_ms_files(repo_id, repo_type, revision, token):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="modely", description="Modely - A tool for downloading models from various sources")
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    parser = argparse.ArgumentParser(
+        prog="modely",
+        description="Modely - unified model and dataset download, discovery, and governance CLI",
+        epilog=_format_command_groups(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", title="commands", metavar="COMMAND", help="Use 'modely COMMAND --help' for details")
 
     # ModelScope subcommand (renamed to "ms")
-    ms_parser = subparsers.add_parser("ms", help="Download models from ModelScope")
+    ms_parser = subparsers.add_parser("ms", help=_COMMAND_HELP["ms"])
     ms_parser.add_argument('repo_id', type=str, help='Repository ID in format owner/name')
     ms_parser.add_argument('--file', type=str, help='Specific file path to download from the repository')
-    ms_parser.add_argument('--repo-type', choices=['model', 'dataset'], default='model', help='Type of repository (default: model)')
+    ms_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset'], default='auto', help='Type of repository (default: auto)')
     ms_parser.add_argument('--revision', type=str, default=None, help='Revision of the model (default: master)')
     ms_parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
     ms_parser.add_argument('--local-dir', type=str, default=None, help='Local directory to download files to')
@@ -130,7 +212,7 @@ def main():
     ms_parser.add_argument('--dry-run', action='store_true', help='Show what would be downloaded without downloading')
 
     # Cache management subcommand
-    cache_parser = subparsers.add_parser("cache", help="Manage modely cache")
+    cache_parser = subparsers.add_parser("cache", help=_COMMAND_HELP["cache"])
     cache_parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory to use')
     cache_subparsers = cache_parser.add_subparsers(dest="cache_command", help="Cache commands")
 
@@ -152,12 +234,16 @@ def main():
     cache_dedupe_parser = cache_subparsers.add_parser("dedupe", help="Report duplicate files in cache")
     cache_dedupe_parser.add_argument("--dry-run", action="store_true", help="Report only; do not modify files")
     cache_dedupe_parser.add_argument("--json", action="store_true")
+    cache_serve_parser = cache_subparsers.add_parser("serve", help="Serve a read-only local cache browser")
+    cache_serve_parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+    cache_serve_parser.add_argument("--port", type=int, default=8765, help="Port to bind (default: 8765)")
+    cache_serve_parser.add_argument("--open", action="store_true", help="Open the browser after starting")
 
     # Hugging Face subcommand
-    hf_parser = subparsers.add_parser("hf", help="Download models from Hugging Face")
+    hf_parser = subparsers.add_parser("hf", help=_COMMAND_HELP["hf"])
     hf_parser.add_argument('repo_id', type=str, help='Repository ID in format namespace/model_name')
     hf_parser.add_argument('--file', type=str, help='Specific file path to download from the repository')
-    hf_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space'], default='model', help='Type of repository (default: model)')
+    hf_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'space'], default='auto', help='Type of repository (default: auto)')
     hf_parser.add_argument('--revision', type=str, default='main', help='Revision of the model (default: main)')
     hf_parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
     hf_parser.add_argument('--local-dir', type=str, default=None, help='Local directory to download files to')
@@ -170,7 +256,7 @@ def main():
     hf_parser.add_argument('--dry-run', action='store_true', help='Show what would be downloaded without downloading')
 
     # GitHub subcommand
-    github_parser = subparsers.add_parser("github", help="Download from GitHub")
+    github_parser = subparsers.add_parser("github", help=_COMMAND_HELP["github"])
     github_parser.add_argument('repo_id', type=str, help='Repository ID in format owner/repo')
     github_parser.add_argument('--file', type=str, help='Specific file to download')
     github_parser.add_argument('--revision', type=str, default='main', help='Branch, tag, or commit SHA (default: main)')
@@ -186,14 +272,14 @@ def main():
     github_parser.add_argument('--submodules', action='store_true', help='Initialize git submodules after clone')
 
     # Unified info/files/download commands
-    info_parser = subparsers.add_parser("info", help="Show repository metadata for a modely URI")
+    info_parser = subparsers.add_parser("info", help=_COMMAND_HELP["info"])
     info_parser.add_argument("resource", type=str, help="Resource URI, e.g. hf://models/gpt2")
     info_parser.add_argument('--revision', type=str, default=None)
     info_parser.add_argument('--token', type=str, default=None)
     info_parser.add_argument('--endpoint', type=str, default=None)
     info_parser.add_argument('--json', action='store_true')
 
-    files_parser = subparsers.add_parser("files", help="List repository files for a modely URI")
+    files_parser = subparsers.add_parser("files", help=_COMMAND_HELP["files"])
     files_parser.add_argument("resource", type=str, help="Resource URI, e.g. hf://models/gpt2")
     files_parser.add_argument('--revision', type=str, default=None)
     files_parser.add_argument('--token', type=str, default=None)
@@ -205,10 +291,10 @@ def main():
     files_parser.add_argument('--summary', action='store_true')
     files_parser.add_argument('--json', action='store_true')
 
-    plan_parser = subparsers.add_parser("plan", help="Preview and summarize a download without downloading")
+    plan_parser = subparsers.add_parser("plan", help=_COMMAND_HELP["plan"])
     plan_parser.add_argument("resource", type=str)
     plan_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
-    plan_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space', 'tool', 'competition'], default='model')
+    plan_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'space', 'tool', 'competition'], default='auto')
     plan_parser.add_argument('--revision', type=str, default=None)
     plan_parser.add_argument('--include', nargs='+', default=None)
     plan_parser.add_argument('--exclude', nargs='+', default=None)
@@ -220,14 +306,14 @@ def main():
     plan_parser.add_argument('--release', default=None)
     plan_parser.add_argument('--json', action='store_true')
 
-    card_parser = subparsers.add_parser("card", help="Fetch and parse a model/dataset/repository card")
+    card_parser = subparsers.add_parser("card", help=_COMMAND_HELP["card"])
     card_parser.add_argument("resource", type=str)
     card_parser.add_argument('--revision', type=str, default=None)
     card_parser.add_argument('--token', default=None)
     card_parser.add_argument('--endpoint', default=None)
     card_parser.add_argument('--json', action='store_true')
 
-    analyze_parser = subparsers.add_parser("analyze", help="Analyze repository metadata, files, card, and weight formats")
+    analyze_parser = subparsers.add_parser("analyze", help=_COMMAND_HELP["analyze"])
     analyze_parser.add_argument("resource", type=str)
     analyze_parser.add_argument('--revision', type=str, default=None)
     analyze_parser.add_argument('--token', default=None)
@@ -239,7 +325,7 @@ def main():
     analyze_parser.add_argument('--deep', action='store_true', help='Add metadata-derived format, quantization, profile, and risk analysis')
     analyze_parser.add_argument('--json', action='store_true')
 
-    score_parser = subparsers.add_parser("score", help="Score modely resource health")
+    score_parser = subparsers.add_parser("score", help=_COMMAND_HELP["score"])
     score_parser.add_argument("resource")
     score_parser.add_argument('--revision', type=str, default=None)
     score_parser.add_argument('--token', default=None)
@@ -251,7 +337,7 @@ def main():
     score_parser.add_argument('--local', action='store_true', help='Score a local directory without network access')
     score_parser.add_argument('--json', action='store_true')
 
-    scan_parser = subparsers.add_parser("scan", help="Scan modely resource for metadata, safety, and reproducibility risks")
+    scan_parser = subparsers.add_parser("scan", help=_COMMAND_HELP["scan"])
     scan_parser.add_argument("resource")
     scan_parser.add_argument('--revision', type=str, default=None)
     scan_parser.add_argument('--token', default=None)
@@ -266,7 +352,7 @@ def main():
     scan_parser.add_argument('--policy', default=None, help='JSON policy file for scan evaluation')
     scan_parser.add_argument('--json', action='store_true')
 
-    compare_parser = subparsers.add_parser("compare", help="Compare two modely resources")
+    compare_parser = subparsers.add_parser("compare", help=_COMMAND_HELP["compare"])
     compare_parser.add_argument("left", type=str)
     compare_parser.add_argument("right", type=str)
     compare_parser.add_argument('--revision-left', default=None)
@@ -278,10 +364,10 @@ def main():
     compare_parser.add_argument('--deep', action='store_true', help='Run deep analysis before comparing')
     compare_parser.add_argument('--json', action='store_true')
 
-    get_parser = subparsers.add_parser("get", help="Download by URI or auto-selected source")
+    get_parser = subparsers.add_parser("get", help=_COMMAND_HELP["get"])
     get_parser.add_argument("resource", type=str)
     get_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
-    get_parser.add_argument('--repo-type', choices=['model', 'dataset', 'space', 'tool'], default='model')
+    get_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'space', 'tool'], default='auto')
     get_parser.add_argument('--revision', type=str, default=None)
     get_parser.add_argument('--file', type=str, default=None)
     get_parser.add_argument('--cache-dir', type=str, default=None)
@@ -303,7 +389,7 @@ def main():
     get_parser.add_argument('--retries', type=int, default=None)
     get_parser.add_argument('--no-resume', action='store_true', help='Disable backend resume behavior where supported')
 
-    sources_parser = subparsers.add_parser("sources", help="List or probe source endpoints")
+    sources_parser = subparsers.add_parser("sources", help=_COMMAND_HELP["sources"])
     sources_subparsers = sources_parser.add_subparsers(dest="sources_command")
     sources_list_parser = sources_subparsers.add_parser("list", help="List source profiles")
     sources_list_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
@@ -314,24 +400,24 @@ def main():
     sources_probe_parser.add_argument('--timeout', type=float, default=5)
     sources_probe_parser.add_argument('--json', action='store_true')
 
-    capabilities_parser = subparsers.add_parser("capabilities", help="Show source/backend capability matrix")
+    capabilities_parser = subparsers.add_parser("capabilities", help=_COMMAND_HELP["capabilities"])
     capabilities_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'http', 'all'], default='all')
     capabilities_parser.add_argument('--backend', default=None, help='Specific backend or source alias to inspect')
     capabilities_parser.add_argument('--json', action='store_true')
 
-    login_parser = subparsers.add_parser("login", help="Store a source token")
+    login_parser = subparsers.add_parser("login", help=_COMMAND_HELP["login"])
     login_parser.add_argument('source', choices=['hf', 'ms', 'github', 'kaggle'])
     login_parser.add_argument('--username', help='Kaggle username; stored guidance only, prefer KAGGLE_USERNAME for runtime')
     login_group = login_parser.add_mutually_exclusive_group(required=True)
     login_group.add_argument('--token')
     login_group.add_argument('--stdin', action='store_true', help='Read token from stdin')
-    logout_parser = subparsers.add_parser("logout", help="Remove a stored source token")
+    logout_parser = subparsers.add_parser("logout", help=_COMMAND_HELP["logout"])
     logout_parser.add_argument('source', choices=['hf', 'ms', 'github', 'kaggle'])
-    whoami_parser = subparsers.add_parser("whoami", help="Show token status/identity")
+    whoami_parser = subparsers.add_parser("whoami", help=_COMMAND_HELP["whoami"])
     whoami_parser.add_argument('source', choices=['hf', 'ms', 'github', 'kaggle'])
     whoami_parser.add_argument('--token', default=None)
 
-    lock_parser = subparsers.add_parser("lock", help="Create a JSON lockfile for a resource")
+    lock_parser = subparsers.add_parser("lock", help=_COMMAND_HELP["lock"])
     lock_parser.add_argument('resource', type=str)
     lock_parser.add_argument('--revision', type=str, default=None)
     lock_parser.add_argument('--include', nargs='+', default=None)
@@ -345,7 +431,7 @@ def main():
     lock_parser.add_argument('--require-checksums', action='store_true', help='Require SHA256 metadata for all selected files')
     lock_parser.add_argument('--json', action='store_true')
 
-    install_parser = subparsers.add_parser("install", help="Install from a modely lockfile")
+    install_parser = subparsers.add_parser("install", help=_COMMAND_HELP["install"])
     install_parser.add_argument('-f', '--file', required=True)
     install_parser.add_argument('--local-dir', default=None)
     install_parser.add_argument('--cache-dir', default=None)
@@ -354,7 +440,7 @@ def main():
     install_parser.add_argument('--fallback', action='store_true', help='Try alternate sources from lock metadata or --prefer')
     install_parser.add_argument('--prefer', default=None, help='Comma-separated source order for fallback installs')
 
-    validate_lock_parser = subparsers.add_parser("validate-lock", help="Validate a modely lockfile against local files")
+    validate_lock_parser = subparsers.add_parser("validate-lock", help=_COMMAND_HELP["validate-lock"])
     validate_lock_parser.add_argument('-f', '--file', required=True)
     validate_lock_parser.add_argument('--local-dir', default=None)
     validate_lock_parser.add_argument('--checksum', action='store_true')
@@ -362,7 +448,7 @@ def main():
     validate_lock_parser.add_argument('--require-checksums', action='store_true', help='Fail when lock entries lack checksums')
     validate_lock_parser.add_argument('--json', action='store_true')
 
-    catalog_parser = subparsers.add_parser("catalog", help="Inventory local or cached modely assets")
+    catalog_parser = subparsers.add_parser("catalog", help=_COMMAND_HELP["catalog"])
     catalog_subparsers = catalog_parser.add_subparsers(dest="catalog_command")
     catalog_scan_parser = catalog_subparsers.add_parser("scan", help="Scan a local directory or modely cache into a catalog report")
     catalog_scan_parser.add_argument("root", nargs="?", default=None, help="Local root directory to scan")
@@ -396,10 +482,10 @@ def main():
     catalog_gate_parser.add_argument('--policy', default=None)
     catalog_gate_parser.add_argument('--json', action='store_true')
 
-    doctor_parser = subparsers.add_parser("doctor", help="Diagnose and recommend a modely resource")
+    doctor_parser = subparsers.add_parser("doctor", help=_COMMAND_HELP["doctor"])
     doctor_parser.add_argument("query")
     doctor_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
-    doctor_parser.add_argument('--repo-type', choices=['model', 'dataset', 'tool'], default='model')
+    doctor_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'tool'], default='auto')
     doctor_parser.add_argument('--strategy', choices=['balanced', 'safest', 'fastest', 'freshest'], default='balanced')
     doctor_parser.add_argument('--probe', action='store_true')
     doctor_parser.add_argument('--limit', type=int, default=5)
@@ -408,10 +494,10 @@ def main():
     doctor_parser.add_argument('--endpoint', default=None)
     doctor_parser.add_argument('--json', action='store_true')
 
-    choose_parser = subparsers.add_parser("choose", help="Choose the best source for a resource query")
+    choose_parser = subparsers.add_parser("choose", help=_COMMAND_HELP["choose"])
     choose_parser.add_argument("query")
     choose_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
-    choose_parser.add_argument('--repo-type', choices=['model', 'dataset', 'tool'], default='model')
+    choose_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'tool'], default='auto')
     choose_parser.add_argument('--strategy', choices=['balanced', 'safest', 'fastest', 'freshest'], default='balanced')
     choose_parser.add_argument('--limit', type=int, default=5)
     choose_parser.add_argument('--threshold', type=float, default=0.35)
@@ -419,32 +505,32 @@ def main():
     choose_parser.add_argument('--endpoint', default=None)
     choose_parser.add_argument('--json', action='store_true')
 
-    mirror_verify_parser = subparsers.add_parser("verify-mirror", help="Verify two resources appear mirror-equivalent")
+    mirror_verify_parser = subparsers.add_parser("verify-mirror", help=_COMMAND_HELP["verify-mirror"])
     mirror_verify_parser.add_argument("left")
     mirror_verify_parser.add_argument("right")
     mirror_verify_parser.add_argument('--token', default=None)
     mirror_verify_parser.add_argument('--no-deep', action='store_true')
     mirror_verify_parser.add_argument('--json', action='store_true')
 
-    report_parser = subparsers.add_parser("report", help="Generate a resource report")
+    report_parser = subparsers.add_parser("report", help=_COMMAND_HELP["report"])
     report_parser.add_argument("resource")
     report_parser.add_argument('--format', choices=['markdown', 'html', 'json'], default='markdown')
     report_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
-    report_parser.add_argument('--repo-type', choices=['model', 'dataset', 'tool'], default='model')
+    report_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'tool'], default='auto')
     report_parser.add_argument('--output', '-o', default=None)
 
-    benchmark_parser = subparsers.add_parser("benchmark", help="Benchmark source endpoint availability")
+    benchmark_parser = subparsers.add_parser("benchmark", help=_COMMAND_HELP["benchmark"])
     benchmark_parser.add_argument("resource", nargs="?", default=None)
     benchmark_parser.add_argument('--source', '--sources', dest='sources', default='all')
     benchmark_parser.add_argument('--url', default=None)
     benchmark_parser.add_argument('--timeout', type=float, default=5)
     benchmark_parser.add_argument('--json', action='store_true')
 
-    batch_parser = subparsers.add_parser("batch-download", help="Search by tags and batch download matching resources")
+    batch_parser = subparsers.add_parser("batch-download", help=_COMMAND_HELP["batch-download"])
     batch_parser.add_argument("keyword", nargs="?", default=None)
     batch_parser.add_argument('--tag', action='append', default=None, help='Filter by tag; repeat for AND matching')
     batch_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'all'], default='all')
-    batch_parser.add_argument('--repo-type', choices=['model', 'dataset'], default='model')
+    batch_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset'], default='auto')
     batch_parser.add_argument('--limit', type=int, default=20, help='Maximum matching resources to download')
     batch_parser.add_argument('--search-limit', type=int, default=None, help='Maximum results to fetch per source before tag filtering')
     batch_parser.add_argument('--task', default=None)
@@ -477,8 +563,8 @@ def main():
     batch_parser.add_argument('--yes', action='store_true', help='Execute downloads instead of dry-run')
     batch_parser.add_argument('--json', action='store_true')
 
-    sync_parser = subparsers.add_parser("sync", help="Download-only local sync of a resource")
-    mirror_parser = subparsers.add_parser("mirror", help="Alias for sync")
+    sync_parser = subparsers.add_parser("sync", help=_COMMAND_HELP["sync"])
+    mirror_parser = subparsers.add_parser("mirror", help=_COMMAND_HELP["mirror"])
     for p in (sync_parser, mirror_parser):
         p.add_argument('resource', type=str)
         p.add_argument('--local-dir', required=True)
@@ -499,19 +585,19 @@ def main():
         p.add_argument('--deep', action='store_true', help='Use deep analysis for report analysis/comparison')
 
     # Watch subcommand
-    watch_parser = subparsers.add_parser("watch", help="Watch repositories and download updates")
+    watch_parser = subparsers.add_parser("watch", help=_COMMAND_HELP["watch"])
     configure_watch_parser(watch_parser)
 
     # Resolve subcommand
-    resolve_parser = subparsers.add_parser("resolve", help="Resolve likely equivalent resources across sources")
+    resolve_parser = subparsers.add_parser("resolve", help=_COMMAND_HELP["resolve"])
     resolve_parser.add_argument("query", type=str, help="Model/dataset name or modely URI to resolve")
     resolve_parser.add_argument(
         "--source", "-s", choices=["hf", "ms", "github", "kaggle", "all"], default="all",
         help="Platform to search (default: all)",
     )
     resolve_parser.add_argument(
-        "--repo-type", "-t", choices=["model", "dataset", "tool"], default="model",
-        help="Type of repository (default: model)",
+        "--repo-type", "-t", choices=["auto", "model", "dataset", "tool"], default="auto",
+        help="Type of repository (default: auto)",
     )
     resolve_parser.add_argument("--task", default=None, help="Filter by task type")
     resolve_parser.add_argument("--library", default=None, help="Filter by library where supported")
@@ -522,15 +608,15 @@ def main():
     resolve_parser.add_argument("--json", action="store_true", help="Output result as JSON")
 
     # Search subcommand
-    search_parser = subparsers.add_parser("search", help="Search for models and datasets")
+    search_parser = subparsers.add_parser("search", help=_COMMAND_HELP["search"])
     search_parser.add_argument("keyword", type=str, nargs="?", default=None, help="Search keyword for model/dataset name")
     search_parser.add_argument(
         "--source", "-s", choices=["hf", "ms", "github", "kaggle", "all"], default="all",
         help="Platform to search (default: all)",
     )
     search_parser.add_argument(
-        "--repo-type", "-t", choices=["model", "dataset", "tool"], default="model",
-        help="Type of repository (default: model)",
+        "--repo-type", "-t", choices=["auto", "model", "dataset", "tool"], default="auto",
+        help="Type of repository (default: auto)",
     )
     search_parser.add_argument(
         "--task", type=str, default=None,
@@ -590,26 +676,27 @@ def main():
 
     if args.command == "ms":
         try:
+            repo_type = concrete_repo_type(args.repo_type, "ms")
             # Set ModelScope endpoint if provided
             if getattr(args, 'endpoint', None):
                 os.environ['MODELSCOPE_ENDPOINT'] = args.endpoint
 
             # --list-files: show remote file listing
             if getattr(args, 'list_files', False):
-                files = _list_ms_files(args.repo_id, args.repo_type, args.revision, args.token)
+                files = _list_ms_files(args.repo_id, repo_type, args.revision, args.token)
                 _print_file_list(files, "ms", args.repo_id)
                 return
 
             # --dry-run: preview what would be downloaded
             if getattr(args, 'dry_run', False):
-                files = _list_ms_files(args.repo_id, args.repo_type, args.revision, args.token)
-                _do_dry_run("ms", args.repo_id, args.repo_type, args.revision,
+                files = _list_ms_files(args.repo_id, repo_type, args.revision, args.token)
+                _do_dry_run("ms", args.repo_id, repo_type, args.revision,
                             args.include, args.exclude, files)
                 return
 
             if args.file:
                 # Download a specific file
-                if args.repo_type == 'model':
+                if repo_type == 'model':
                     result = model_file_download(
                         model_id=args.repo_id,
                         file_path=args.file,
@@ -634,7 +721,7 @@ def main():
                 # Download entire repository
                 result = modelscope_snapshot_download(
                     repo_id=args.repo_id,
-                    repo_type=args.repo_type,
+                    repo_type=repo_type,
                     revision=args.revision,
                     cache_dir=args.cache_dir,
                     local_dir=args.local_dir,
@@ -650,20 +737,21 @@ def main():
             sys.exit(1)
     elif args.command == "hf":
         try:
+            repo_type = concrete_repo_type(args.repo_type, "hf")
             # Set HF endpoint if provided
             if getattr(args, 'endpoint', None):
                 os.environ['HF_ENDPOINT'] = args.endpoint
 
             # --list-files: show remote file listing
             if getattr(args, 'list_files', False):
-                files = _list_hf_files(args.repo_id, args.repo_type, args.revision, args.token, args.endpoint)
+                files = _list_hf_files(args.repo_id, repo_type, args.revision, args.token, args.endpoint)
                 _print_file_list(files, "hf", args.repo_id)
                 return
 
             # --dry-run: preview what would be downloaded
             if getattr(args, 'dry_run', False):
-                files = _list_hf_files(args.repo_id, args.repo_type, args.revision, args.token, args.endpoint)
-                _do_dry_run("hf", args.repo_id, args.repo_type, args.revision,
+                files = _list_hf_files(args.repo_id, repo_type, args.revision, args.token, args.endpoint)
+                _do_dry_run("hf", args.repo_id, repo_type, args.revision,
                             args.include, args.exclude, files)
                 return
 
@@ -672,7 +760,7 @@ def main():
                 result = hf_file_download(
                     repo_id=args.repo_id,
                     filename=args.file,
-                    repo_type=args.repo_type,
+                    repo_type=repo_type,
                     revision=args.revision,
                     cache_dir=args.cache_dir,
                     local_dir=args.local_dir,
@@ -684,7 +772,7 @@ def main():
                 # Download entire repository
                 result = hf_snapshot_download(
                     repo_id=args.repo_id,
-                    repo_type=args.repo_type,
+                    repo_type=repo_type,
                     revision=args.revision,
                     cache_dir=args.cache_dir,
                     local_dir=args.local_dir,
@@ -1133,6 +1221,10 @@ def cache_main(args=None):
         dedupe_parser = subparsers.add_parser("dedupe")
         dedupe_parser.add_argument("--dry-run", action="store_true")
         dedupe_parser.add_argument("--json", action="store_true")
+        serve_parser = subparsers.add_parser("serve")
+        serve_parser.add_argument("--host", default="127.0.0.1")
+        serve_parser.add_argument("--port", type=int, default=8765)
+        serve_parser.add_argument("--open", action="store_true")
 
         args = parser.parse_args()
 
@@ -1180,8 +1272,16 @@ def cache_main(args=None):
     elif args.cache_command == "dedupe":
         cache.print_dedupe_report(cache.find_duplicate_files(cache_dir), as_json=getattr(args, "json", False))
 
+    elif args.cache_command == "serve":
+        serve_cache_browser(
+            cache_dir,
+            host=getattr(args, "host", "127.0.0.1"),
+            port=getattr(args, "port", 8765),
+            open_browser=getattr(args, "open", False),
+        )
+
     else:
-        print("Usage: modely cache [info|list|clean|config|dedupe]")
+        print("Usage: modely cache [info|list|clean|config|dedupe|serve]")
         sys.exit(1)
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from .search import search
 from .search.dedupe import dedupe_results, normalize_repo_name
@@ -86,9 +86,13 @@ def resolve_resource(
     )
 
 
-def normalize_resolve_text(value: str) -> str:
+def normalize_resolve_text(value: Any) -> str:
     """Normalize free text for conservative resolve scoring."""
-    text = (value or "").rsplit("/", 1)[-1].lower()
+    if isinstance(value, dict):
+        value = value.get("Name") or value.get("name") or value.get("login") or value.get("id") or ""
+    elif isinstance(value, (list, tuple, set)):
+        value = next((item for item in value if item), "")
+    text = str(value or "").rsplit("/", 1)[-1].lower()
     text = re.sub(r"[_.\s]+", "-", text)
     text = re.sub(r"-+", "-", text).strip("-")
     return text

@@ -10,7 +10,7 @@ from .common import cache
 from .files import filter_files, format_file_size, list_repo_files, summarize_files
 from .profiles import resolve_download_profile
 from .types import DownloadPlan
-from .uri import normalize_repo_type, normalize_source, parse_modely_uri
+from .uri import concrete_repo_type, normalize_repo_type, normalize_source, parse_modely_uri
 
 
 def create_download_plan(
@@ -36,7 +36,7 @@ def create_download_plan(
         if source == "auto":
             source = "hf"
             warnings.append("Plain repository IDs default to Hugging Face for planning; pass --source to plan another source.")
-        ref = parse_modely_uri(resource, source=normalize_source(source), repo_type=normalize_repo_type(repo_type, source))
+        ref = parse_modely_uri(resource, source=normalize_source(source), repo_type=concrete_repo_type(repo_type, source))
     if revision:
         ref.revision = revision
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from modely.uri import format_modely_uri, normalize_repo_type, parse_modely_uri
+from modely.uri import concrete_repo_type, format_modely_uri, normalize_repo_type, parse_modely_uri, repo_type_candidates
 
 
 def test_parse_hf_model_uri():
@@ -47,6 +47,14 @@ def test_normalize_repo_type_aliases():
     assert normalize_repo_type("models", "hf") == "model"
     assert normalize_repo_type("datasets", "ms") == "dataset"
     assert normalize_repo_type("models", "github") == "tool"
+
+
+def test_auto_repo_type_helpers():
+    assert normalize_repo_type("auto", "hf") == "auto"
+    assert concrete_repo_type("auto", "hf") == "model"
+    assert concrete_repo_type("auto", "github") == "tool"
+    assert repo_type_candidates("auto", "hf") == ["model", "dataset"]
+    assert repo_type_candidates("auto", "github") == ["tool"]
 
 
 def test_invalid_source_raises():

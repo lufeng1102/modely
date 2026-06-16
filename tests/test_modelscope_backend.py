@@ -40,12 +40,14 @@ class TestModelScopeBackendSelection:
             "owner/model",
             "config.json",
             revision="master",
+            cache_dir="/tmp/modely-cache",
             backend="auto",
         )
 
         assert result == "/official/config.json"
         assert called["model_id"] == "owner/model"
         assert called["file_path"] == "config.json"
+        assert called["local_dir"] == "/tmp/modely-cache/ms/models/owner--model/master"
 
     def test_model_file_auto_falls_back_when_official_fails(self, monkeypatch):
         called = {}
@@ -103,6 +105,7 @@ class TestModelScopeBackendSelection:
             "owner/model",
             repo_type="model",
             revision="master",
+            cache_dir="/tmp/modely-cache",
             allow_patterns=["*.json"],
             backend="auto",
         )
@@ -110,8 +113,30 @@ class TestModelScopeBackendSelection:
         assert result == "/official/repo"
         assert called["repo_id"] == "owner/model"
         assert called["allow_patterns"] == ["*.json"]
+        assert called["local_dir"] == "/tmp/modely-cache/ms/models/owner--model/master"
 
-    def test_snapshot_lightweight_forces_fallback_path(self, monkeypatch):
+    def test_snapshot_official_respects_local_dir(self, monkeypatch):
+        called = {}
+        monkeypatch.setattr(official_adapter, "is_available", lambda: True)
+
+        def fake_official(**kwargs):
+            called.update(kwargs)
+            return "/custom/repo"
+
+        monkeypatch.setattr(official_adapter, "snapshot_download", fake_official)
+
+        ms_mod.snapshot_download(
+            "owner/model",
+            repo_type="model",
+            revision="master",
+            cache_dir="/tmp/modely-cache",
+            local_dir="/custom/repo",
+            backend="auto",
+        )
+
+        assert called["local_dir"] == "/custom/repo"
+
+
         called = {}
         monkeypatch.setattr(official_adapter, "is_available", lambda: True)
 

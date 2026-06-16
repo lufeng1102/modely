@@ -605,6 +605,17 @@ def _should_use_official_backend(backend: str) -> bool:
     return available
 
 
+def _official_local_dir(repo_id: str, repo_type: str, revision: Optional[str], cache_dir, local_dir: Optional[str]) -> Optional[str]:
+    """Return the local directory for official SDK downloads."""
+    if local_dir:
+        return local_dir
+    default_revision = DEFAULT_DATASET_REVISION if repo_type == REPO_TYPE_DATASET else DEFAULT_MODEL_REVISION
+    base = ms_cache.get_cache_dir(cache_dir)
+    repo_dir = repo_id.replace("/", "--")
+    type_dir = "datasets" if repo_type == REPO_TYPE_DATASET else "models" if repo_type == REPO_TYPE_MODEL else repo_type
+    return os.path.join(base, "ms", type_dir, repo_dir, revision or default_revision)
+
+
 def model_file_download(
     model_id: str,
     file_path: str,
@@ -625,7 +636,7 @@ def model_file_download(
                 file_path=file_path,
                 revision=revision,
                 cache_dir=cache_dir,
-                local_dir=local_dir,
+                local_dir=_official_local_dir(model_id, REPO_TYPE_MODEL, revision, cache_dir, local_dir),
                 token=token,
             )
         except Exception as exc:
@@ -665,7 +676,7 @@ def dataset_file_download(
                 file_path=file_path,
                 revision=revision,
                 cache_dir=cache_dir,
-                local_dir=local_dir,
+                local_dir=_official_local_dir(dataset_id, REPO_TYPE_DATASET, revision, cache_dir, local_dir),
                 token=token,
             )
         except Exception as exc:
@@ -1006,6 +1017,7 @@ def snapshot_download(
     backend: str = "auto",
 ) -> str:
     """Download all files from a repository using official SDK or lightweight backend."""
+    official_failed = False
     if _should_use_official_backend(backend):
         from . import official_adapter
         try:
@@ -1014,7 +1026,7 @@ def snapshot_download(
                 repo_type=repo_type,
                 revision=revision,
                 cache_dir=cache_dir,
-                local_dir=local_dir,
+                local_dir=_official_local_dir(repo_id, repo_type, revision, cache_dir, local_dir),
                 token=token,
                 allow_patterns=allow_patterns,
                 ignore_patterns=ignore_patterns,
@@ -1022,6 +1034,7 @@ def snapshot_download(
         except Exception as exc:
             if backend == "official":
                 raise
+            official_failed = True
             print(f"Warning: Official ModelScope SDK failed, falling back to lightweight backend: {exc}")
 
     return _lightweight_snapshot_download(
@@ -1033,7 +1046,7 @@ def snapshot_download(
         cookies=cookies,
         local_dir=local_dir,
         token=token,
-        force_download=force_download,
+        force_download=force_download or official_failed,
         allow_patterns=allow_patterns,
         ignore_patterns=ignore_patterns,
     )

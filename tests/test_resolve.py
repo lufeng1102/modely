@@ -77,6 +77,17 @@ def test_score_candidate_adds_group_signals():
     assert "license-match" in signals
 
 
+def test_score_candidate_handles_structured_author_metadata():
+    result = SearchResult("org/model", "ms", "model", author={"Name": "org"})
+    peer = SearchResult("other/model", "hf", "model", author="other")
+    group = {"sources": ["ms", "hf"], "results": [result, peer]}
+
+    score, signals = score_candidate("model", result, group)
+
+    assert score > 0
+    assert "cross-source-group" in signals
+
+
 def test_resolve_uri_query_uses_repo_name(monkeypatch):
     captured = {}
 
@@ -89,6 +100,25 @@ def test_resolve_uri_query_uses_repo_name(monkeypatch):
     resolve_resource("hf://models/Qwen/Qwen2.5-7B-Instruct", threshold=0.1)
 
     assert captured["keyword"] == "Qwen2.5-7B-Instruct"
+
+
+def test_resolve_accepts_auto_repo_type(monkeypatch):
+    captured = {}
+    results = [
+        SearchResult("org/model", "hf", "model"),
+        SearchResult("org/dataset", "hf", "dataset"),
+    ]
+
+    def fake_search(keyword, **kwargs):
+        captured.update(kwargs)
+        return results
+
+    monkeypatch.setattr("modely.resolve.search", fake_search)
+
+    resolved = resolve_resource("org", repo_type="auto", threshold=0.1)
+
+    assert captured["repo_type"] == "auto"
+    assert {candidate.repo_type for candidate in resolved.candidates} <= {"model", "dataset"}
 
 
 def test_resolve_json_output_is_valid(monkeypatch, capsys):

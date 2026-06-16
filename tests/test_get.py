@@ -91,3 +91,74 @@ def test_download_resource_wires_checksum_verification(tmp_path, monkeypatch):
     result = download_resource("hf://models/org/model", file="config.json", checksum=True)
 
     assert result == str(local)
+
+
+def test_download_resource_auto_repo_type_concretizes_for_hf(tmp_path, monkeypatch):
+    called = {}
+
+    monkeypatch.setattr("modely.auth.get_token", lambda source, token=None: token)
+
+    def fake_snapshot(repo_id, **kwargs):
+        called.update(kwargs)
+        return str(tmp_path / "snapshot")
+
+    monkeypatch.setattr("modely.hf.snapshot_download", fake_snapshot)
+
+    download_resource("org/model", source="hf", repo_type="auto")
+
+    assert called["repo_type"] == "model"
+
+
+def test_download_resource_auto_repo_type_concretizes_for_github(tmp_path, monkeypatch):
+    called = {}
+
+    monkeypatch.setattr("modely.auth.get_token", lambda source, token=None: token)
+
+    def fake_clone(repo_id, **kwargs):
+        called.update(kwargs)
+        return str(tmp_path / "repo")
+
+    monkeypatch.setattr("modely.github.github_clone", fake_clone)
+
+    result = download_resource("owner/repo", source="github", repo_type="auto")
+
+    assert result.endswith("repo")
+    assert "auto" not in called.values()
+
+
+    configured_cache = tmp_path / "configured-cache"
+    called = {}
+
+    monkeypatch.setattr("modely.auth.get_token", lambda source, token=None: token)
+    monkeypatch.setattr("modely.get.modely_cache.get_cache_dir", lambda explicit=None: str(explicit or configured_cache))
+
+    def fake_snapshot(repo_id, **kwargs):
+        called.update(kwargs)
+        return str(configured_cache / "ms" / "models" / "org--model" / "master")
+
+    monkeypatch.setattr("modely.modelscope.snapshot_download", fake_snapshot)
+
+    result = download_resource("org/model", source="ms", backend="official")
+
+    assert result.endswith("org--model/master")
+    assert called["cache_dir"] == str(configured_cache)
+    assert called["backend"] == "official"
+
+
+def test_download_resource_explicit_cache_dir_wins(tmp_path, monkeypatch):
+    explicit_cache = tmp_path / "explicit-cache"
+    called = {}
+
+    monkeypatch.setattr("modely.auth.get_token", lambda source, token=None: token)
+    monkeypatch.setattr("modely.get.modely_cache.get_cache_dir", lambda explicit=None: str(explicit or tmp_path / "configured-cache"))
+
+    def fake_snapshot(repo_id, **kwargs):
+        called.update(kwargs)
+        return str(explicit_cache / "ms" / "models" / "org--model" / "master")
+
+    monkeypatch.setattr("modely.modelscope.snapshot_download", fake_snapshot)
+
+    download_resource("org/model", source="ms", cache_dir=str(explicit_cache), backend="lightweight")
+
+    assert called["cache_dir"] == str(explicit_cache)
+

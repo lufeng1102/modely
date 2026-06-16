@@ -67,7 +67,8 @@ def create_batch_download_plan(
         full=full,
     )
     matched = filter_results_by_tags(fetched, required_tags) if required_tags else list(fetched)
-    matched = [result for result in matched if result.repo_type == repo_type]
+    if repo_type != "auto":
+        matched = [result for result in matched if result.repo_type == repo_type]
     selected = matched[:limit]
     return {
         "dry_run": True,

@@ -48,11 +48,26 @@ def print_backend_capabilities(items, *, as_json: bool = False) -> None:
     if as_json:
         print(json.dumps([i.to_dict() for i in items], indent=2, ensure_ascii=False))
         return
+
+    headers = ["Backend", "Source", "Kind", "Status"]
+    rows = []
     for item in items:
         status = "available" if item.available else "unavailable"
-        extra = f" (extra: {item.requires_extra})" if item.requires_extra else ""
-        print(f"{item.name:24} {item.source:8} {item.kind:14} {status}{extra}")
+        if item.requires_extra:
+            status = f"{status} (requires: {item.requires_extra})"
+        rows.append([item.name, item.source, item.kind, status])
+
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for idx, cell in enumerate(row):
+            widths[idx] = max(widths[idx], len(cell))
+
+    print("  ".join(header.ljust(widths[idx]) for idx, header in enumerate(headers)))
+    print("  ".join("-" * width for width in widths))
+    for item, row in zip(items, rows):
+        print("  ".join(cell.ljust(widths[idx]) for idx, cell in enumerate(row)))
         supported = [k for k, v in item.supports.items() if v]
-        print(f"  supports: {', '.join(supported) if supported else '-'}")
+        print(f"  Supports: {', '.join(supported) if supported else '-'}")
         for note in item.notes:
-            print(f"  note: {note}")
+            print(f"  Note:     {note}")
+        print()
