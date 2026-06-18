@@ -51,13 +51,14 @@ def format_table(results: List[SearchResult]) -> str:
     if not results:
         return "No results found."
 
-    headers = ["Source", "ID", "Task", "Downloads", "Likes", "Created", "Last Modified", "URL"]
+    headers = ["Source", "Type", "ID", "Task", "Downloads", "Likes", "Created", "Last Modified", "URL"]
     rows = []
     col_widths = [len(h) for h in headers]
 
     for r in results:
         row = [
             r.source.upper(),
+            r.repo_type or "-",
             _truncate_id(r.id),
             r.pipeline_tag or "-",
             _format_count(r.downloads),

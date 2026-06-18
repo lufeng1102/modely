@@ -80,7 +80,7 @@ def search_huggingface(
                 id=getattr(item, "id", ""),
                 source="hf",
                 repo_type=repo_type,
-                url=f"https://huggingface.co/{getattr(item, 'id', '')}",
+                url=_hf_repo_url(getattr(item, "id", ""), repo_type),
                 author=getattr(item, "author", None),
                 downloads=getattr(item, "downloads", 0) or 0,
                 likes=getattr(item, "likes", 0) or 0,
@@ -107,6 +107,12 @@ def search_huggingface(
         print(f"Warning: Hugging Face search failed: {e}", file=sys.stderr)
 
     return output
+
+
+def _hf_repo_url(repo_id: str, repo_type: str) -> str:
+    """Return the canonical Hugging Face web URL for a repository type."""
+    prefix = "datasets/" if repo_type == "dataset" else "spaces/" if repo_type == "space" else ""
+    return f"https://huggingface.co/{prefix}{repo_id}"
 
 
 def _siblings_size(siblings) -> int:

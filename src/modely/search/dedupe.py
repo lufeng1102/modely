@@ -55,13 +55,14 @@ def format_grouped_table(groups: list[dict], *, compare: bool = False) -> str:
     """Format grouped search results for terminal output."""
     if not groups:
         return "No results found."
-    headers = ["Key", "Sources", "Count", "Top ID", "Downloads", "Likes"]
+    headers = ["Key", "Sources", "Types", "Count", "Top ID", "Downloads", "Likes"]
     rows = []
     for group in groups:
         top = group.get("top")
         rows.append([
             group["key"][:36],
             ",".join(group["sources"]),
+            ",".join(sorted({r.repo_type for r in group["results"] if r.repo_type})),
             str(group["count"]),
             (top.id if top else "-")[:45],
             str(top.downloads if top else 0),
@@ -69,7 +70,7 @@ def format_grouped_table(groups: list[dict], *, compare: bool = False) -> str:
         ])
         if compare and len(group["results"]) > 1:
             for item in group["results"][:5]:
-                rows.append(["  ↳", item.source, "", item.id[:45], str(item.downloads or 0), str(item.likes or 0)])
+                rows.append(["  ↳", item.source, item.repo_type, "", item.id[:45], str(item.downloads or 0), str(item.likes or 0)])
     widths = [len(h) for h in headers]
     for row in rows:
         for i, cell in enumerate(row):

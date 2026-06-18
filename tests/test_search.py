@@ -107,6 +107,7 @@ class TestFormatTable:
         output = format_table([r])
         assert "org/model" in output
         assert "HF" in output
+        assert "model" in output
         assert "text-gen" in output
         assert "1.0K" in output
 
@@ -163,6 +164,20 @@ class TestHuggingFaceSearch:
         results = hf_mod.search_huggingface("test", repo_type="dataset")
         assert len(results) == 1
         assert results[0].id == "org/dataset"
+        assert results[0].repo_type == "dataset"
+        assert results[0].url == "https://huggingface.co/datasets/org/dataset"
+
+    def test_space_url_uses_spaces_prefix(self, monkeypatch):
+        fake_info = _mock_model_info(id="org/space")
+
+        def mock_list_models(self, **kwargs):
+            return [fake_info]
+
+        monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
+
+        results = hf_mod.search_huggingface("test", repo_type="space")
+
+        assert results[0].url == "https://huggingface.co/spaces/org/space"
 
     def test_empty_results(self, monkeypatch):
         def mock_list_models(self, **kwargs):

@@ -46,7 +46,7 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`, `batch-download`), querying and evaluating (`info`, `files`, `card`, `analyze`, `score`, `scan`, `compare`, `resolve`), inspecting backend support (`capabilities`), searching (`search`), reproducibility and inventory (`lock`, `install`, `validate-lock`, `catalog`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
+modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`, `batch-download`), querying and evaluating (`info`, `files`, `card`, `analyze`, `score`, `scan`, `compare`, `resolve`), inspecting backend support (`capabilities`), searching (`search`), reproducibility and inventory (`lock`, `install`, `validate-lock`, `catalog`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Plain Hugging Face and ModelScope repository IDs default to `--repo-type auto`, so query commands can try model and dataset metadata before asking you to disambiguate. Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
 
 ### Aggregation Workflows
 
@@ -215,6 +215,10 @@ Use modely resource URIs to address repositories across platforms:
 
 ```bash
 # Repository metadata, cards, and analysis
+modely-ai info gpt2                         # plain IDs default to Hugging Face with repo type auto
+modely-ai info HennyPr/ps2_hf2              # resolves as a dataset when the model probe misses
+modely-ai info HennyPr/ps2_hf2 --repo-type dataset
+modely-ai info hf://datasets/HennyPr/ps2_hf2
 modely-ai info hf://models/gpt2
 modely-ai info ms://models/AI-ModelScope/gpt2
 modely-ai info github://owner/repo --json
