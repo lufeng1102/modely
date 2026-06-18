@@ -74,7 +74,7 @@ def render_cache_index(data: dict) -> str:
       <h1>Local model and dataset cache</h1>
       <p class="muted">Browse cached assets by source, type, revision, size, and files. This local UI is read-only.</p>
     </div>
-    <div class="cache-path" title="{_esc(cache_info.get('cache_dir', ''))}">{_esc(cache_info.get('cache_dir', '-'))}</div>
+    <div class="cache-path" title="{_esc(cache_info.get('cache_dir', ''))}"><span>Cache dir</span><code>{_esc(cache_info.get('cache_dir', '-'))}</code></div>
   </header>
   <main class="layout">
     <aside class="sidebar">
@@ -196,7 +196,10 @@ def _render_entry_card(entry: dict) -> str:
     )
     if not top_files:
         top_files = "<li><span>No file details</span><em>-</em></li>"
-    categories = "".join(f"<span>{_esc(name)} {count}</span>" for name, count in sorted((entry.get("categories") or {}).items()))
+    categories = "".join(
+        f"<span class='category-pill category-{_esc(name)}'><b>{_esc(name)}</b><em>{count}</em></span>"
+        for name, count in sorted((entry.get("categories") or {}).items())
+    )
     return f"""
 <article class="card" data-search="{_esc((entry.get('repo_id') or '').lower())} {_esc(entry.get('source', ''))} {_esc(entry.get('repo_type', ''))}" data-source="{_esc(entry.get('source', 'unknown'))}" data-repo-type="{_esc(entry.get('repo_type', 'unknown'))}" data-revision="{_esc(entry.get('revision', 'unknown'))}">
   <div class="card-head">
@@ -204,7 +207,7 @@ def _render_entry_card(entry: dict) -> str:
       <h2>{_esc(entry.get('repo_id', '-'))}</h2>
       <p>{_esc(entry.get('local_path', '-'))}</p>
     </div>
-    <div class="badges"><span>{_esc(entry.get('source', 'unknown'))}</span><span>{_esc(entry.get('repo_type', 'unknown'))}</span></div>
+    <div class="badges"><span class="badge badge-source">{_esc(entry.get('source', 'unknown'))}</span><span class="badge badge-type">{_esc(entry.get('repo_type', 'unknown'))}</span></div>
   </div>
   <div class="meta">
     <span>Revision <strong>{_esc(entry.get('revision', '-'))}</strong></span>
@@ -225,14 +228,16 @@ def _esc(value) -> str:
 
 
 _CSS = """
-:root { color-scheme: light; --bg: #f7f7f4; --panel: #ffffff; --line: #e5e2da; --text: #171717; --muted: #6b665f; --accent: #ff9d00; }
+:root { color-scheme: light; --bg: #f7f7f4; --panel: #ffffff; --line: #e5e2da; --text: #171717; --muted: #6b665f; --accent: #ff9d00; --accent-soft: #fff3dc; --blue-soft: #eaf3ff; --green-soft: #eaf8ee; --purple-soft: #f3edff; --gray-soft: #f2f0ea; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-.hero { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding: 32px 40px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, #fff, #fff7e8); }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42vw); gap: 24px; align-items: center; padding: 32px 40px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, #fff, #fff7e8); }
 .eyebrow { margin: 0 0 8px; color: #b66b00; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 h1 { margin: 0; font-size: 34px; letter-spacing: -0.03em; }
 .muted { color: var(--muted); max-width: 720px; }
-.cache-path { max-width: 440px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 999px; padding: 10px 14px; background: #fff; color: var(--muted); }
+.cache-path { min-width: 0; border: 1px solid var(--line); border-radius: 18px; padding: 12px 14px; background: rgba(255,255,255,.84); color: var(--muted); box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+.cache-path span { display: block; margin-bottom: 4px; color: #b66b00; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.cache-path code { display: block; white-space: normal; overflow-wrap: anywhere; word-break: break-word; color: var(--text); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; padding: 24px 40px 40px; }
 .sidebar { display: flex; flex-direction: column; gap: 16px; }
 .stat, .filter, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
@@ -242,7 +247,20 @@ h1 { margin: 0; font-size: 34px; letter-spacing: -0.03em; }
 .filter { padding: 16px; }
 .filter h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .chips, .badges, .categories { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip, .badges span, .categories span { border-radius: 999px; background: #f2f0ea; padding: 5px 9px; color: #514c45; font-size: 12px; }
+.badges { justify-content: flex-end; align-items: flex-start; min-width: max-content; }
+.chip { border-radius: 999px; background: #f2f0ea; padding: 5px 9px; color: #514c45; font-size: 12px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 750; line-height: 1; letter-spacing: .01em; box-shadow: inset 0 0 0 1px rgba(255,255,255,.65), 0 1px 2px rgba(0,0,0,.04); }
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: currentColor; opacity: .72; }
+.badge-source { background: linear-gradient(135deg, #fff4df, #ffe3ad); color: #8a5200; border: 1px solid #ffd28a; }
+.badge-type { background: linear-gradient(135deg, #eef5ff, #dcecff); color: #28537f; border: 1px solid #c5ddfb; }
+.category-pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 999px; padding: 5px 6px 5px 10px; color: #514c45; font-size: 12px; line-height: 1; }
+.category-pill b { font-weight: 700; }
+.category-pill em { min-width: 20px; padding: 3px 6px; border-radius: 999px; background: rgba(255,255,255,.8); color: #3f3a34; font-style: normal; font-weight: 750; text-align: center; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
+.category-card { background: var(--blue-soft); color: #234b76; }
+.category-weights { background: var(--green-soft); color: #245333; }
+.category-tokenizer { background: var(--purple-soft); color: #4e3574; }
+.category-metadata { background: var(--accent-soft); color: #774900; }
+.category-other { background: var(--gray-soft); color: #514c45; }
 button.chip { border: 1px solid transparent; cursor: pointer; font: inherit; }
 button.chip:hover, button.chip:focus { border-color: var(--accent); outline: none; }
 button.chip.active { background: #fff1d6; border-color: var(--accent); color: #7a4a00; font-weight: 650; }
@@ -254,7 +272,7 @@ input[type=search] { width: min(520px, 100%); border: 1px solid var(--line); bor
 .api-link { align-self: center; color: #7a4a00; text-decoration: none; font-weight: 600; }
 .cards { display: grid; gap: 16px; }
 .card { padding: 18px; }
-.card-head { display: flex; justify-content: space-between; gap: 18px; }
+.card-head { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
 .card h2 { margin: 0; font-size: 20px; }
 .card p { margin: 6px 0 0; color: var(--muted); word-break: break-all; }
 .meta { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0; color: var(--muted); }
@@ -266,7 +284,7 @@ summary { cursor: pointer; font-weight: 650; }
 .files span { word-break: break-all; }
 .files em { color: var(--muted); font-style: normal; white-space: nowrap; }
 .empty { padding: 32px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; color: var(--muted); }
-@media (max-width: 820px) { .hero, .card-head, .toolbar { flex-direction: column; align-items: stretch; } .layout { grid-template-columns: 1fr; padding: 20px; } .hero { padding: 24px 20px; } }
+@media (max-width: 820px) { .card-head, .toolbar { flex-direction: column; align-items: stretch; } .hero { grid-template-columns: 1fr; padding: 24px 20px; } .layout { grid-template-columns: 1fr; padding: 20px; } }
 """
 
 _JS = """

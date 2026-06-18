@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from modely.common import cache as github_cache
 from modely.types import FileInfo, RepoInfo
+from modely.uri import normalize_github_repo_id
 
 
 def github_file_download(
@@ -44,6 +45,7 @@ def github_file_download(
     Returns:
         Path to the downloaded file
     """
+    repo_id = normalize_github_repo_id(repo_id)
     # Check cache first
     if not force_download:
         cached = github_cache.is_cached(
@@ -112,6 +114,7 @@ def _github_headers(token: Optional[str] = None) -> dict:
 
 def github_repo_info(repo_id: str, *, revision: str = "main", token: Optional[str] = None) -> RepoInfo:
     """Get GitHub repository metadata."""
+    repo_id = normalize_github_repo_id(repo_id)
     resp = requests.get(f"https://api.github.com/repos/{repo_id}", headers=_github_headers(token), timeout=30)
     resp.raise_for_status()
     data = resp.json()
@@ -136,6 +139,7 @@ def github_repo_info(repo_id: str, *, revision: str = "main", token: Optional[st
 
 
 def _resolve_tree_sha(repo_id: str, revision: str, token: Optional[str] = None) -> str:
+    repo_id = normalize_github_repo_id(repo_id)
     resp = requests.get(
         f"https://api.github.com/repos/{repo_id}/git/trees/{quote(revision, safe='')}",
         params={"recursive": "1"},
@@ -229,6 +233,7 @@ def github_release_asset_download(
 
 def get_default_branch(repo_id: str, token: Optional[str] = None) -> Optional[str]:
     """Get the default branch of a GitHub repository via API."""
+    repo_id = normalize_github_repo_id(repo_id)
     url = f"https://api.github.com/repos/{repo_id}"
     headers = _github_headers(token)
     try:
@@ -267,6 +272,7 @@ def github_clone(
     Returns:
         Path to the cloned repository
     """
+    repo_id = normalize_github_repo_id(repo_id)
     # Resolve actual revision (use default branch if needed)
     actual_revision = revision
     if not force_download and revision == "main":

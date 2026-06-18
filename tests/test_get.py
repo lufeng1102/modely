@@ -126,6 +126,25 @@ def test_download_resource_auto_repo_type_concretizes_for_github(tmp_path, monke
     assert "auto" not in called.values()
 
 
+def test_download_resource_accepts_github_https_url(tmp_path, monkeypatch):
+    called = {}
+
+    monkeypatch.setattr("modely.auth.get_token", lambda source, token=None: token)
+
+    def fake_clone(repo_id, **kwargs):
+        called["repo_id"] = repo_id
+        called.update(kwargs)
+        return str(tmp_path / "repo")
+
+    monkeypatch.setattr("modely.github.github_clone", fake_clone)
+
+    result = download_resource("https://github.com/d2l-ai/d2l-zh")
+
+    assert result.endswith("repo")
+    assert called["repo_id"] == "d2l-ai/d2l-zh"
+
+
+def test_download_resource_uses_configured_cache_dir(tmp_path, monkeypatch):
     configured_cache = tmp_path / "configured-cache"
     called = {}
 

@@ -10,6 +10,7 @@ from typing import Optional
 import requests
 
 from .auth import get_token
+from .info import resolve_repo_ref
 from .types import AssetCard, RepoRef
 from .uri import parse_modely_uri
 
@@ -76,9 +77,15 @@ def extract_card_metadata(data: dict) -> dict:
     return normalized
 
 
-def get_card(resource: str | RepoRef, *, revision: Optional[str] = None, token: Optional[str] = None, endpoint: Optional[str] = None) -> AssetCard:
+def get_card(resource: str | RepoRef, *, revision: Optional[str] = None, token: Optional[str] = None,
+             endpoint: Optional[str] = None, source: str = "auto", repo_type: str = "auto") -> AssetCard:
     """Fetch a best-effort card/README for a resource."""
-    ref = resource if isinstance(resource, RepoRef) else parse_modely_uri(resource)
+    if isinstance(resource, RepoRef):
+        ref = resource
+    elif "://" in str(resource):
+        ref = parse_modely_uri(resource)
+    else:
+        ref = resolve_repo_ref(resource, revision=revision, token=token, endpoint=endpoint, source=source, repo_type=repo_type)
     if revision:
         ref.revision = revision
     token = get_token(ref.source, token)

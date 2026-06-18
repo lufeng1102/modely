@@ -36,6 +36,13 @@ def test_parse_github_uri():
     assert ref.revision == "main"
 
 
+def test_parse_github_https_url():
+    ref = parse_modely_uri("https://github.com/d2l-ai/d2l-zh.git")
+    assert ref.source == "github"
+    assert ref.repo_type == "tool"
+    assert ref.repo_id == "d2l-ai/d2l-zh"
+
+
 def test_plain_repo_uses_explicit_source():
     ref = parse_modely_uri("owner/repo", source="github")
     assert ref.source == "github"

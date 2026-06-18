@@ -22,6 +22,8 @@ def score_resource(
     exclude: Optional[List[str]] = None,
     profile: Optional[str] = None,
     deep: bool = True,
+    source: str = "auto",
+    repo_type: str = "auto",
 ) -> AssetScore:
     """Score a resource's metadata, completeness, reproducibility, and safety."""
     analysis = analyze_resource(
@@ -33,6 +35,8 @@ def score_resource(
         exclude=exclude,
         profile=profile,
         deep=deep,
+        source=source,
+        repo_type=repo_type,
     )
     return _score_analysis(resource, analysis, revision=revision, deep=deep, profile=profile, include=include, exclude=exclude)
 

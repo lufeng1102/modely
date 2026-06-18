@@ -6,6 +6,25 @@ from urllib.parse import parse_qs, urlparse
 
 from .types import RepoRef
 
+
+def github_repo_id_from_url(value: str) -> str | None:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() != "github.com":
+        return None
+    parts = [p for p in parsed.path.split("/") if p]
+    if len(parts) < 2:
+        return None
+    repo = "/".join(parts[:2])
+    return repo[:-4] if repo.endswith(".git") else repo
+
+
+def normalize_github_repo_id(repo_id: str) -> str:
+    """Normalize owner/repo input or a GitHub URL to owner/repo."""
+    repo_id = github_repo_id_from_url(repo_id) or repo_id.strip().removesuffix(".git")
+    if "://" in repo_id or repo_id.count("/") != 1:
+        raise ValueError("GitHub repository must be in owner/repo format or a https://github.com/owner/repo URL")
+    return repo_id
+
 _SUPPORTED_SOURCES = {"hf", "ms", "github", "kaggle"}
 _REPO_TYPE_ALIASES = {
     "model": "model",
@@ -84,6 +103,10 @@ def parse_modely_uri(value: str, *, source: str | None = None, repo_type: str | 
     Plain repo ids require an explicit source or default to Hugging Face.
     """
     parsed = urlparse(value)
+
+    github_repo_id = github_repo_id_from_url(value)
+    if github_repo_id:
+        return RepoRef(source="github", repo_type="tool", repo_id=github_repo_id)
 
     if parsed.scheme:
         src = normalize_source(parsed.scheme)

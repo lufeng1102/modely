@@ -8,7 +8,7 @@ from typing import Optional, List
 
 from .card import get_card
 from .files import classify_file, filter_files, format_file_size, list_repo_files, summarize_files
-from .info import get_repo_info
+from .info import get_repo_info, resolve_repo_ref
 from .profiles import resolve_download_profile
 from .types import AssetAnalysis, FileInfo
 
@@ -30,18 +30,21 @@ def analyze_resource(
     profile: Optional[str] = None,
     top_files: int = 5,
     deep: bool = False,
+    source: str = "auto",
+    repo_type: str = "auto",
 ) -> AssetAnalysis:
     """Analyze metadata, files, card presence, and weight formats for a resource."""
     warnings = []
     include, exclude = resolve_download_profile(profile, include, exclude)
-    info = get_repo_info(resource, revision=revision, token=token, endpoint=endpoint)
-    files = list_repo_files(resource, revision=revision, token=token, endpoint=endpoint)
+    ref = resolve_repo_ref(resource, revision=revision, token=token, endpoint=endpoint, source=source, repo_type=repo_type) if "://" not in str(resource) else resource
+    info = get_repo_info(ref, revision=revision, token=token, endpoint=endpoint)
+    files = list_repo_files(ref, revision=revision, token=token, endpoint=endpoint)
     selected = filter_files(files, include, exclude)
     summary = summarize_files(files, include, exclude)
     largest_files = sorted(selected, key=lambda f: f.size or 0, reverse=True)[:top_files]
     categories = {classify_file(f.path) for f in selected}
     weight_formats = _weight_formats(selected)
-    card = get_card(resource, revision=revision, token=token, endpoint=endpoint)
+    card = get_card(ref, revision=revision, token=token, endpoint=endpoint)
     has_config = "config" in categories
     has_tokenizer = "tokenizer" in categories
     has_card = bool(card.text) or "card" in categories

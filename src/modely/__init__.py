@@ -33,7 +33,7 @@ from .card import get_card, print_card
 from .compare import compare_resources, print_comparison
 from .files import do_dry_run, format_file_size, list_repo_files, print_file_list
 from .get import download_resource
-from .info import get_repo_info, print_repo_info
+from .info import get_repo_info, print_repo_info, resolve_repo_ref
 from .manifest import create_download_manifest, create_lock, install_lock, print_lock_validation, validate_lock
 from .mirror import print_mirror_verification, verify_mirror
 from .doctor import doctor_resource, print_doctor_report
@@ -51,7 +51,7 @@ from .score import print_asset_score, score_path, score_resource
 from .sync import sync_resource
 from .catalog import (diff_catalogs, export_catalog, list_catalog_snapshots, print_catalog_diff,
                       print_catalog_report, read_catalog_report, scan_catalog, snapshot_catalog, write_catalog_report)
-from .uri import concrete_repo_type
+from .uri import concrete_repo_type, parse_modely_uri
 from .common import cache
 from .cache_web import serve_cache_browser
 
@@ -133,6 +133,14 @@ _COMMAND_GROUPS = [
 
 
 _COMMAND_HELP = {command: help_text for _, commands in _COMMAND_GROUPS for command, help_text in commands}
+_SOURCE_CHOICES = ('hf', 'ms', 'github', 'kaggle', 'auto')
+_REPO_TYPE_CHOICES = ('auto', 'model', 'dataset', 'space', 'tool', 'competition')
+_GET_REPO_TYPE_CHOICES = ('auto', 'model', 'dataset', 'space', 'tool')
+
+
+def _add_source_repo_type_args(command_parser, *, repo_type_choices=_REPO_TYPE_CHOICES):
+    command_parser.add_argument('--source', choices=_SOURCE_CHOICES, default='auto')
+    command_parser.add_argument('--repo-type', choices=repo_type_choices, default='auto')
 
 
 def _format_command_groups() -> str:
@@ -193,7 +201,7 @@ def main():
         epilog=_format_command_groups(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    subparsers = parser.add_subparsers(dest="command", title="commands", metavar="COMMAND", help="Use 'modely COMMAND --help' for details")
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND", help=argparse.SUPPRESS)
 
     # ModelScope subcommand (renamed to "ms")
     ms_parser = subparsers.add_parser("ms", help=_COMMAND_HELP["ms"])
@@ -274,6 +282,7 @@ def main():
     # Unified info/files/download commands
     info_parser = subparsers.add_parser("info", help=_COMMAND_HELP["info"])
     info_parser.add_argument("resource", type=str, help="Resource URI, e.g. hf://models/gpt2")
+    _add_source_repo_type_args(info_parser)
     info_parser.add_argument('--revision', type=str, default=None)
     info_parser.add_argument('--token', type=str, default=None)
     info_parser.add_argument('--endpoint', type=str, default=None)
@@ -281,6 +290,7 @@ def main():
 
     files_parser = subparsers.add_parser("files", help=_COMMAND_HELP["files"])
     files_parser.add_argument("resource", type=str, help="Resource URI, e.g. hf://models/gpt2")
+    _add_source_repo_type_args(files_parser)
     files_parser.add_argument('--revision', type=str, default=None)
     files_parser.add_argument('--token', type=str, default=None)
     files_parser.add_argument('--endpoint', type=str, default=None)
@@ -293,8 +303,7 @@ def main():
 
     plan_parser = subparsers.add_parser("plan", help=_COMMAND_HELP["plan"])
     plan_parser.add_argument("resource", type=str)
-    plan_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
-    plan_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'space', 'tool', 'competition'], default='auto')
+    _add_source_repo_type_args(plan_parser)
     plan_parser.add_argument('--revision', type=str, default=None)
     plan_parser.add_argument('--include', nargs='+', default=None)
     plan_parser.add_argument('--exclude', nargs='+', default=None)
@@ -308,6 +317,7 @@ def main():
 
     card_parser = subparsers.add_parser("card", help=_COMMAND_HELP["card"])
     card_parser.add_argument("resource", type=str)
+    _add_source_repo_type_args(card_parser)
     card_parser.add_argument('--revision', type=str, default=None)
     card_parser.add_argument('--token', default=None)
     card_parser.add_argument('--endpoint', default=None)
@@ -315,6 +325,7 @@ def main():
 
     analyze_parser = subparsers.add_parser("analyze", help=_COMMAND_HELP["analyze"])
     analyze_parser.add_argument("resource", type=str)
+    _add_source_repo_type_args(analyze_parser)
     analyze_parser.add_argument('--revision', type=str, default=None)
     analyze_parser.add_argument('--token', default=None)
     analyze_parser.add_argument('--endpoint', default=None)
@@ -327,6 +338,7 @@ def main():
 
     score_parser = subparsers.add_parser("score", help=_COMMAND_HELP["score"])
     score_parser.add_argument("resource")
+    _add_source_repo_type_args(score_parser)
     score_parser.add_argument('--revision', type=str, default=None)
     score_parser.add_argument('--token', default=None)
     score_parser.add_argument('--endpoint', default=None)
@@ -339,6 +351,7 @@ def main():
 
     scan_parser = subparsers.add_parser("scan", help=_COMMAND_HELP["scan"])
     scan_parser.add_argument("resource")
+    _add_source_repo_type_args(scan_parser)
     scan_parser.add_argument('--revision', type=str, default=None)
     scan_parser.add_argument('--token', default=None)
     scan_parser.add_argument('--endpoint', default=None)
@@ -365,9 +378,8 @@ def main():
     compare_parser.add_argument('--json', action='store_true')
 
     get_parser = subparsers.add_parser("get", help=_COMMAND_HELP["get"])
-    get_parser.add_argument("resource", type=str)
-    get_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
-    get_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'space', 'tool'], default='auto')
+    get_parser.add_argument("resource", nargs="+", help="Resource URI/repo, or SOURCE RESOURCE for compatibility")
+    _add_source_repo_type_args(get_parser, repo_type_choices=_GET_REPO_TYPE_CHOICES)
     get_parser.add_argument('--revision', type=str, default=None)
     get_parser.add_argument('--file', type=str, default=None)
     get_parser.add_argument('--cache-dir', type=str, default=None)
@@ -832,7 +844,8 @@ def main():
             sys.exit(1)
     elif args.command == "info":
         try:
-            info = get_repo_info(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint)
+            info = get_repo_info(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint,
+                                 source=args.source, repo_type=args.repo_type)
             print_repo_info(info, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
@@ -840,11 +853,16 @@ def main():
     elif args.command == "files":
         try:
             include, exclude = resolve_download_profile(args.profile, args.include, args.exclude)
-            files = list_repo_files(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint, release=args.release)
+            if args.release:
+                ref = parse_modely_uri(args.resource, source=args.source, repo_type=args.repo_type)
+            else:
+                ref = resolve_repo_ref(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint,
+                                       source=args.source, repo_type=args.repo_type)
+            files = list_repo_files(ref, revision=args.revision, token=args.token, endpoint=args.endpoint,
+                                    release=args.release)
             from .files import filter_files
             files = filter_files(files, include, exclude)
-            ref_source = args.resource.split("://", 1)[0] if "://" in args.resource else "hf"
-            print_file_list(files, ref_source, args.resource, as_json=args.json, summary=args.summary)
+            print_file_list(files, ref.source, ref.repo_id, as_json=args.json, summary=args.summary)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -860,7 +878,8 @@ def main():
             sys.exit(1)
     elif args.command == "card":
         try:
-            card = get_card(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint)
+            card = get_card(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint,
+                            source=args.source, repo_type=args.repo_type)
             print_card(card, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
@@ -869,7 +888,8 @@ def main():
         try:
             analysis = analyze_resource(args.resource, revision=args.revision, token=args.token,
                                         endpoint=args.endpoint, include=args.include, exclude=args.exclude,
-                                        profile=args.profile, top_files=args.top_files, deep=args.deep)
+                                        profile=args.profile, top_files=args.top_files, deep=args.deep,
+                                        source=args.source, repo_type=args.repo_type)
             print_asset_analysis(analysis, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
@@ -881,7 +901,8 @@ def main():
             else:
                 result = score_resource(args.resource, revision=args.revision, token=args.token,
                                         endpoint=args.endpoint, include=args.include, exclude=args.exclude,
-                                        profile=args.profile, deep=not args.no_deep)
+                                        profile=args.profile, deep=not args.no_deep,
+                                        source=args.source, repo_type=args.repo_type)
             print_asset_score(result, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
@@ -893,7 +914,8 @@ def main():
             else:
                 result = scan_resource(args.resource, revision=args.revision, token=args.token,
                                        endpoint=args.endpoint, include=args.include, exclude=args.exclude,
-                                       profile=args.profile, deep=not args.no_deep, inspect_files=args.inspect_files)
+                                       profile=args.profile, deep=not args.no_deep, inspect_files=args.inspect_files,
+                                       source=args.source, repo_type=args.repo_type)
             policy_result = evaluate_scan_policy(result, fail_on=args.fail_on, policy=load_policy(args.policy)) if (args.fail_on or args.policy) else None
             if policy_result:
                 result.metadata["policy"] = policy_result
@@ -915,8 +937,15 @@ def main():
             sys.exit(1)
     elif args.command == "get":
         try:
+            resource_parts = list(args.resource)
+            if len(resource_parts) == 2 and resource_parts[0] in {"hf", "ms", "github", "kaggle"} and args.source == "auto":
+                args.source, resource = resource_parts
+            elif len(resource_parts) == 1:
+                resource = resource_parts[0]
+            else:
+                raise ValueError("Usage: modely get [--source SOURCE] RESOURCE or modely get SOURCE RESOURCE")
             result = download_resource(
-                args.resource,
+                resource,
                 source=args.source,
                 repo_type=args.repo_type,
                 revision=args.revision,
@@ -940,7 +969,7 @@ def main():
                 resume=not args.no_resume,
             )
             if args.manifest:
-                create_download_manifest(args.resource if "://" in args.resource else f"hf://models/{args.resource}", result,
+                create_download_manifest(resource if "://" in resource else f"hf://models/{resource}", result,
                                          include=args.include, exclude=args.exclude,
                                          checksum=args.checksum, output=args.manifest)
             print(f"Downloaded to: {result}")

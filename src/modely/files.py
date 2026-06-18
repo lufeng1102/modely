@@ -7,6 +7,7 @@ import json
 from typing import Iterable, List
 
 from .auth import get_token
+from .info import resolve_repo_ref
 from .types import FileInfo, FileSummary, RepoRef
 from .uri import parse_modely_uri
 
@@ -24,9 +25,14 @@ def format_file_size(size_bytes):
     return f"{size_bytes} B"
 
 
-def list_repo_files(ref_or_uri, *, revision=None, token=None, endpoint=None, release=None) -> List[FileInfo]:
+def list_repo_files(ref_or_uri, *, revision=None, token=None, endpoint=None, release=None, source: str = "auto", repo_type: str = "auto") -> List[FileInfo]:
     """List files for any supported source."""
-    ref = ref_or_uri if isinstance(ref_or_uri, RepoRef) else parse_modely_uri(ref_or_uri)
+    if isinstance(ref_or_uri, RepoRef):
+        ref = ref_or_uri
+    elif "://" in str(ref_or_uri):
+        ref = parse_modely_uri(ref_or_uri)
+    else:
+        ref = resolve_repo_ref(ref_or_uri, revision=revision, token=token, endpoint=endpoint, source=source, repo_type=repo_type)
     if revision:
         ref.revision = revision
     token = get_token(ref.source, token)

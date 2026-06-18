@@ -40,6 +40,8 @@ def scan_resource(
     profile: Optional[str] = None,
     deep: bool = True,
     inspect_files: bool = False,
+    source: str = "auto",
+    repo_type: str = "auto",
 ) -> ScanResult:
     """Scan a resource for metadata, safety, and reproducibility risks."""
     analysis = analyze_resource(
@@ -51,6 +53,8 @@ def scan_resource(
         exclude=exclude,
         profile=profile,
         deep=deep,
+        source=source,
+        repo_type=repo_type,
     )
     findings = find_scan_findings(analysis)
     if inspect_files:

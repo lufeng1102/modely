@@ -36,6 +36,8 @@ def test_render_cache_index_contains_cards_and_filters(tmp_path):
     html = render_cache_index(build_cache_browser_data(cache_dir))
 
     assert "Local model and dataset cache" in html
+    assert "Cache dir" in html
+    assert "<code>" in html
     assert "org/model" in html
     assert "hf" in html
     assert "model" in html
@@ -47,6 +49,10 @@ def test_render_cache_index_contains_cards_and_filters(tmp_path):
     assert 'data-repo-type="model"' in html
     assert 'data-revision="main"' in html
     assert "activeFilters" in html
+    assert "badge-source" in html
+    assert "badge-type" in html
+    assert "category-pill" in html
+    assert "category-card" in html
 
 
 def test_cache_browser_data_is_json_serializable(tmp_path):

@@ -7,15 +7,58 @@ from typing import Optional
 
 from .auth import get_token
 from .types import RepoInfo, RepoRef
-from .uri import parse_modely_uri
+from .uri import parse_modely_uri, repo_type_candidates, normalize_source
 
 
-def get_repo_info(ref_or_uri, *, revision: Optional[str] = None, token: Optional[str] = None, endpoint: Optional[str] = None) -> RepoInfo:
+def get_repo_info(ref_or_uri, *, revision: Optional[str] = None, token: Optional[str] = None,
+                  endpoint: Optional[str] = None, source: str = "auto", repo_type: str = "auto") -> RepoInfo:
     """Return best-effort repository metadata for any supported source."""
-    ref = ref_or_uri if isinstance(ref_or_uri, RepoRef) else parse_modely_uri(ref_or_uri)
+    ref = _resolve_ref(ref_or_uri, source=source, repo_type=repo_type)
     if revision:
         ref.revision = revision
     token = get_token(ref.source, token)
+    candidates = _candidate_refs(ref, explicit=(isinstance(ref_or_uri, RepoRef) or "://" in str(ref_or_uri)), repo_type=repo_type)
+    errors = []
+    for candidate in candidates:
+        if revision:
+            candidate.revision = revision
+        try:
+            return _repo_info_for_ref(candidate, token=token, endpoint=endpoint)
+        except Exception as exc:
+            errors.append(f"{candidate.source}:{candidate.repo_type}: {exc}")
+            if len(candidates) == 1:
+                raise
+    raise Exception(
+        "Could not resolve repository info. Tried "
+        + ", ".join(f"{c.source}:{c.repo_type}" for c in candidates)
+        + ". Use an explicit URI such as hf://datasets/<repo> or pass --repo-type. "
+        + "; ".join(errors)
+    )
+
+
+def resolve_repo_ref(ref_or_uri, *, revision: Optional[str] = None, token: Optional[str] = None,
+                     endpoint: Optional[str] = None, source: str = "auto", repo_type: str = "auto") -> RepoRef:
+    """Resolve a resource to a concrete repository reference using metadata probes."""
+    info = get_repo_info(ref_or_uri, revision=revision, token=token, endpoint=endpoint, source=source, repo_type=repo_type)
+    return RepoRef(info.source, info.repo_type, info.repo_id, revision or info.revision)
+
+
+def _resolve_ref(ref_or_uri, *, source: str = "auto", repo_type: str = "auto") -> RepoRef:
+    if isinstance(ref_or_uri, RepoRef):
+        return ref_or_uri
+    if "://" in str(ref_or_uri):
+        return parse_modely_uri(ref_or_uri)
+    src = "hf" if source == "auto" else normalize_source(source)
+    return parse_modely_uri(ref_or_uri, source=src, repo_type=repo_type)
+
+
+def _candidate_refs(ref: RepoRef, *, explicit: bool, repo_type: str) -> list[RepoRef]:
+    if explicit or repo_type != "auto":
+        return [ref]
+    return [RepoRef(ref.source, candidate_type, ref.repo_id, ref.revision, ref.path) for candidate_type in repo_type_candidates("auto", ref.source)]
+
+
+def _repo_info_for_ref(ref: RepoRef, *, token=None, endpoint=None) -> RepoInfo:
     if ref.source == "hf":
         from .hf import get_repo_info as hf_info
         return hf_info(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision or "main", token=token, endpoint=endpoint)
