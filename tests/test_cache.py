@@ -103,6 +103,11 @@ class TestCacheStructure:
         path = get_repo_cache_dir("torvalds/linux", "tool", "master", "github", tmp_cache)
         assert path == os.path.join(tmp_cache, "github", "tools", "torvalds--linux", "master")
 
+    def test_github_model_type_still_uses_tools_path(self, tmp_cache):
+        path = get_repo_cache_dir("keras-team/keras", "model", "master", "github", tmp_cache)
+        assert path == os.path.join(tmp_cache, "github", "tools", "keras-team--keras", "master")
+        assert os.path.join("github", "models") not in path
+
     def test_repo_id_normalization(self, tmp_cache):
         path = get_repo_cache_dir("owner/repo-name", "tool", "main", "github", tmp_cache)
         assert "owner--repo-name" in path

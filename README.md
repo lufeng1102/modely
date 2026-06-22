@@ -209,6 +209,8 @@ Download a GitHub release asset:
 modely-ai github owner/repo --release v1.0.0 --asset model.tar.gz
 ```
 
+GitHub repositories are treated as `tool` resources in modely-ai. Even when a unified command is called with `--repo-type model` or `--repo-type auto`, GitHub downloads and cache entries are normalized to `github/tools/...` rather than `github/models/...`.
+
 #### Unified Query, Download, Lock, and Sync
 
 Use modely resource URIs to address repositories across platforms:
@@ -527,7 +529,7 @@ mirror_path = sync_resource("ms://models/AI-ModelScope/gpt2", local_dir="./mirro
 
 ## Cache Management
 
-modely-ai includes a unified cache system to avoid duplicate downloads. Files are organized by source (Hugging Face / ModelScope / GitHub / Kaggle), repository type, repository ID, and revision.
+modely-ai includes a unified cache system to avoid duplicate downloads. Files are organized by source (Hugging Face / ModelScope / GitHub / Kaggle), repository type, repository ID, and revision. GitHub repositories are always cached as `tool` resources under `github/tools/`, because GitHub is a code/repository backend rather than a model/dataset registry in modely-ai's cache model.
 
 ### Cache Directory Configuration
 
@@ -566,7 +568,7 @@ modely-ai --cache-dir /path/to/cache hf gpt2
 │   │       └── master/
 │   └── datasets/
 └── github/                # GitHub cache
-    └── tools/             # repo_type = tool
+    └── tools/             # GitHub resources are always repo_type = tool
         └── owner--repo/
             └── main/
                 ├── README.md

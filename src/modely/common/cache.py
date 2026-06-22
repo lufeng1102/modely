@@ -105,7 +105,7 @@ def _repo_type_to_dir(repo_type: str) -> str:
 def get_repo_type_dir(source: str, repo_type: str, cache_dir: Optional[str] = None) -> str:
     """Get cache directory for a specific source and repo type."""
     source_dir = get_source_cache_dir(source, cache_dir)
-    type_dir = _repo_type_to_dir(repo_type)
+    type_dir = REPO_TYPE_TOOL if source == SOURCE_GITHUB else _repo_type_to_dir(repo_type)
     path = os.path.join(source_dir, type_dir)
     os.makedirs(path, exist_ok=True)
     return path

@@ -284,7 +284,7 @@ def github_clone(
     # Check cache first
     if not force_download:
         cached_path = github_cache.get_cached_repo_path(
-            repo_id, "model", actual_revision, "github", cache_dir
+            repo_id, "tool", actual_revision, "github", cache_dir
         )
         if cached_path and os.path.exists(os.path.join(cached_path, ".git")):
             print(f"Repository already cached at: {cached_path}")
@@ -404,7 +404,7 @@ def github_clone(
                     # Rebuild target_dir with correct branch
                     if not local_dir:
                         target_dir = github_cache.get_repo_cache_dir(
-                            repo_id, "model", default_branch, "github", cache_dir
+                            repo_id, "tool", default_branch, "github", cache_dir
                         )
                         repo_name = os.path.basename(target_dir)
                         parent_dir = os.path.dirname(target_dir)
