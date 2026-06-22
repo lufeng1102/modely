@@ -1,6 +1,6 @@
 """Unit tests for unified file listing helpers."""
 
-from modely.files import list_repo_files
+from modely.files import list_repo_files, print_file_tree
 from modely.types import FileInfo, RepoRef
 
 
@@ -31,3 +31,11 @@ def test_list_repo_files_explicit_uri_skips_auto_resolution(monkeypatch):
     monkeypatch.setattr("modely.hf.list_files", lambda *a, **k: [FileInfo("README.md")])
 
     assert list_repo_files("hf://datasets/org/data")[0].path == "README.md"
+
+
+def test_print_file_tree_shows_categories(capsys):
+    print_file_tree([FileInfo("nested/config.json", size=10), FileInfo("README.md", size=5)])
+
+    output = capsys.readouterr().out
+    assert "README.md [card]" in output
+    assert "config.json [config]" in output

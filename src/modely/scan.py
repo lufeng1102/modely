@@ -26,6 +26,11 @@ _MAX_CODE_SCAN_BYTES = 256_000
 _RISKY_WEIGHT_SUFFIXES = (".pt", ".pth", ".bin", ".ckpt")
 _CUSTOM_CODE_PREFIXES = ("modeling_", "configuration_", "tokenization_")
 _SCRIPT_SUFFIXES = (".sh", ".bat", ".ps1")
+_SECRET_PATTERNS = {
+    "possible-token": re.compile(r"(?i)(hf_|ghp_|sk-[a-z0-9])"),
+    "aws-access-key": re.compile(r"AKIA[0-9A-Z]{16}"),
+    "private-key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+}
 _SEVERITY_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3}
 
 
@@ -59,6 +64,31 @@ def scan_resource(
     findings = find_scan_findings(analysis)
     if inspect_files:
         findings = _dedupe_findings(findings + _remote_content_findings(resource, analysis, revision=revision, token=token, endpoint=endpoint))
+    return scan_analysis(
+        resource,
+        analysis,
+        findings=findings,
+        deep=deep,
+        profile=profile,
+        include=include,
+        exclude=exclude,
+        inspect_files=inspect_files,
+    )
+
+
+def scan_analysis(
+    resource: str,
+    analysis: AssetAnalysis,
+    *,
+    findings: Optional[list[ScanFinding]] = None,
+    deep: bool = True,
+    profile=None,
+    include=None,
+    exclude=None,
+    inspect_files: bool = False,
+) -> ScanResult:
+    """Build a scan result from an existing asset analysis."""
+    findings = find_scan_findings(analysis) if findings is None else findings
     return ScanResult(
         resource=resource,
         risk_level=risk_level(findings),
@@ -153,6 +183,15 @@ def find_scan_findings(analysis: AssetAnalysis) -> list[ScanFinding]:
     for f in files:
         lower = f.path.lower()
         name = lower.rsplit("/", 1)[-1]
+        if name in {".env", ".env.local", "credentials.json"} or "/.env" in lower:
+            findings.append(ScanFinding(
+                "secret-file",
+                "high",
+                "security",
+                "Potential secret or credential file detected.",
+                path=f.path,
+                recommendation="Remove secrets from published assets and rotate exposed credentials.",
+            ))
         if lower.endswith(_PICKLE_SUFFIXES):
             findings.append(ScanFinding(
                 "pickle-artifact",
@@ -324,6 +363,9 @@ def _content_findings(text: str, path: str) -> list[ScanFinding]:
     for finding_id, pattern in _SUSPICIOUS_CODE_PATTERNS.items():
         if pattern.search(text):
             findings.append(ScanFinding(finding_id, "medium", "security", "Suspicious executable code pattern detected.", path=path, recommendation="Review code before importing or executing this asset."))
+    for finding_id, pattern in _SECRET_PATTERNS.items():
+        if pattern.search(text):
+            findings.append(ScanFinding(finding_id, "high", "security", "Possible secret material detected in text content.", path=path, recommendation="Remove secrets from published assets and rotate exposed credentials."))
     return findings
 
 
@@ -336,7 +378,7 @@ def _local_content_findings(path: str) -> list[ScanFinding]:
             continue
         rel = item.name if root.is_file() else str(item.relative_to(root))
         findings.extend(_local_static_artifact_findings(item, rel))
-        if item.suffix.lower() not in {".py", ".ipynb", ".sh", ".ps1", ".bat"}:
+        if item.suffix.lower() not in {".py", ".ipynb", ".sh", ".ps1", ".bat", ".md", ".txt", ".json", ".yaml", ".yml"} and item.name.lower() not in {"readme", ".env"}:
             continue
         try:
             if item.stat().st_size > _MAX_CODE_SCAN_BYTES:

@@ -82,6 +82,24 @@ def test_scan_remote_code_and_scripts(monkeypatch):
     assert "script-file" in ids
 
 
+def test_scan_secret_file_is_high_severity(monkeypatch):
+    analysis = _analysis(files=[FileInfo(".env", size=10, sha256="x")])
+    monkeypatch.setattr("modely.scan.analyze_resource", lambda *a, **k: analysis)
+
+    result = scan_resource("hf://models/org/model")
+
+    finding = next(f for f in result.findings if f.id == "secret-file")
+    assert finding.severity == "high"
+
+
+def test_scan_local_secret_patterns(tmp_path):
+    (tmp_path / "README.md").write_text("token hf_abcdefghijklmnopqrstuvwxyz123456")
+
+    result = scan_path(str(tmp_path))
+
+    assert any(f.id == "possible-token" for f in result.findings)
+
+
 def test_scan_missing_checksums(monkeypatch):
     analysis = _analysis(files=[FileInfo("config.json", size=10)])
     monkeypatch.setattr("modely.scan.analyze_resource", lambda *a, **k: analysis)

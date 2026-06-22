@@ -27,13 +27,19 @@ from .watch import (
 )
 from .search import SearchResult, main as search_main
 from .auth import delete_token, save_token, whoami
+from .audit import list_audit_events, print_audit_events
 from .backends import get_backend_capabilities, list_backends, print_backend_capabilities
 from .analyze import analyze_resource, print_asset_analysis
 from .card import get_card, print_card
 from .compare import compare_resources, print_comparison
-from .files import do_dry_run, format_file_size, list_repo_files, print_file_list
+from .compare_many import compare_many_resources, print_many_comparison
+from .detail import get_resource_detail, print_resource_detail
+from .files import do_dry_run, format_file_size, list_repo_files, print_file_list, print_file_tree
 from .get import download_resource
 from .info import get_repo_info, print_repo_info, resolve_repo_ref
+from .labels import (export_project, list_asset_metadata, print_asset_metadata, print_project_export,
+                     update_asset_record)
+from .license import license_risk, print_license_risk
 from .manifest import create_download_manifest, create_lock, install_lock, print_lock_validation, validate_lock
 from .mirror import print_mirror_verification, verify_mirror
 from .doctor import doctor_resource, print_doctor_report
@@ -45,13 +51,15 @@ from .plan import create_download_plan, print_download_plan
 from .profiles import PROFILES, resolve_download_profile
 from .sources import list_source_profiles, print_probe_results, print_source_profiles, rank_sources
 from .resolve import print_resolve_result, resolve_resource
-from .policy import evaluate_catalog_policy, evaluate_scan_policy, load_policy, print_catalog_policy_result
+from .policy import (evaluate_catalog_policy, evaluate_scan_policy, load_policy,
+                     print_catalog_policy_result, write_policy_template)
 from .scan import print_scan_result, scan_path, scan_resource
 from .score import print_asset_score, score_path, score_resource
 from .sync import sync_resource
 from .catalog import (diff_catalogs, export_catalog, list_catalog_snapshots, print_catalog_diff,
                       print_catalog_report, read_catalog_report, scan_catalog, snapshot_catalog, write_catalog_report)
 from .uri import concrete_repo_type, parse_modely_uri
+from .version import diff_resource_revisions, print_revision_diff
 from .common import cache
 from .cache_web import serve_cache_browser
 
@@ -90,10 +98,14 @@ _COMMAND_GROUPS = [
             ("files", "List and summarize repository files for a modely URI"),
             ("plan", "Dry-run a download plan without downloading"),
             ("card", "Fetch and parse a model, dataset, or repository card"),
+            ("detail", "Show a unified resource detail page"),
             ("analyze", "Analyze metadata, files, cards, and weight formats"),
             ("score", "Score resource health from metadata and file lists"),
             ("scan", "Scan metadata, safety, and reproducibility risks"),
+            ("license", "Classify resource license risk"),
             ("compare", "Deep-compare two explicit modely resources"),
+            ("compare-many", "Compare several resources in one table"),
+            ("version-diff", "Compare files between two resource revisions"),
             ("resolve", "Find likely equivalent resources across sources"),
         ],
     ),
@@ -114,6 +126,9 @@ _COMMAND_GROUPS = [
             ("install", "Install files from a modely lockfile"),
             ("validate-lock", "Validate a lockfile against local files"),
             ("catalog", "Inventory local or cached modely assets"),
+            ("label", "Tag, favorite, and group resources locally"),
+            ("audit", "List local resource operation audit events"),
+            ("policy", "Create built-in governance policy templates"),
             ("verify-mirror", "Verify two resources appear mirror-equivalent"),
             ("report", "Generate a resource report"),
             ("benchmark", "Check source endpoint availability and latency"),
@@ -238,6 +253,7 @@ def main():
     # modely cache config
     cache_config_parser = cache_subparsers.add_parser("config", help="Show or set cache directory")
     cache_config_parser.add_argument("--set", type=str, default=None, help="Set cache directory to this path")
+    cache_config_parser.add_argument("--set-shared", type=str, default=None, help="Set shared team cache directory to this path")
 
     cache_dedupe_parser = cache_subparsers.add_parser("dedupe", help="Report duplicate files in cache")
     cache_dedupe_parser.add_argument("--dry-run", action="store_true", help="Report only; do not modify files")
@@ -299,6 +315,7 @@ def main():
     files_parser.add_argument('--exclude', nargs='+', default=None)
     files_parser.add_argument('--profile', choices=list(PROFILES), default=None)
     files_parser.add_argument('--summary', action='store_true')
+    files_parser.add_argument('--tree', action='store_true', help='Show files as a categorized tree')
     files_parser.add_argument('--json', action='store_true')
 
     plan_parser = subparsers.add_parser("plan", help=_COMMAND_HELP["plan"])
@@ -322,6 +339,18 @@ def main():
     card_parser.add_argument('--token', default=None)
     card_parser.add_argument('--endpoint', default=None)
     card_parser.add_argument('--json', action='store_true')
+
+    detail_parser = subparsers.add_parser("detail", help=_COMMAND_HELP["detail"])
+    detail_parser.add_argument("resource", type=str)
+    _add_source_repo_type_args(detail_parser)
+    detail_parser.add_argument('--revision', type=str, default=None)
+    detail_parser.add_argument('--token', default=None)
+    detail_parser.add_argument('--endpoint', default=None)
+    detail_parser.add_argument('--include', nargs='+', default=None)
+    detail_parser.add_argument('--exclude', nargs='+', default=None)
+    detail_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    detail_parser.add_argument('--deep', action='store_true')
+    detail_parser.add_argument('--json', action='store_true')
 
     analyze_parser = subparsers.add_parser("analyze", help=_COMMAND_HELP["analyze"])
     analyze_parser.add_argument("resource", type=str)
@@ -365,6 +394,14 @@ def main():
     scan_parser.add_argument('--policy', default=None, help='JSON policy file for scan evaluation')
     scan_parser.add_argument('--json', action='store_true')
 
+    license_parser = subparsers.add_parser("license", help=_COMMAND_HELP["license"])
+    license_parser.add_argument("resource")
+    _add_source_repo_type_args(license_parser)
+    license_parser.add_argument('--revision', type=str, default=None)
+    license_parser.add_argument('--token', default=None)
+    license_parser.add_argument('--endpoint', default=None)
+    license_parser.add_argument('--json', action='store_true')
+
     compare_parser = subparsers.add_parser("compare", help=_COMMAND_HELP["compare"])
     compare_parser.add_argument("left", type=str)
     compare_parser.add_argument("right", type=str)
@@ -376,6 +413,28 @@ def main():
     compare_parser.add_argument('--formats', action='store_true', help='Include weight format differences')
     compare_parser.add_argument('--deep', action='store_true', help='Run deep analysis before comparing')
     compare_parser.add_argument('--json', action='store_true')
+
+    compare_many_parser = subparsers.add_parser("compare-many", help=_COMMAND_HELP["compare-many"])
+    compare_many_parser.add_argument("resources", nargs="+")
+    compare_many_parser.add_argument('--source', choices=['hf', 'ms', 'github', 'kaggle', 'auto'], default='auto')
+    compare_many_parser.add_argument('--repo-type', choices=['auto', 'model', 'dataset', 'space', 'tool', 'competition'], default='auto')
+    compare_many_parser.add_argument('--revision', type=str, default=None)
+    compare_many_parser.add_argument('--token', default=None)
+    compare_many_parser.add_argument('--endpoint', default=None)
+    compare_many_parser.add_argument('--include', nargs='+', default=None)
+    compare_many_parser.add_argument('--exclude', nargs='+', default=None)
+    compare_many_parser.add_argument('--profile', choices=list(PROFILES), default=None)
+    compare_many_parser.add_argument('--deep', action='store_true')
+    compare_many_parser.add_argument('--json', action='store_true')
+
+    version_diff_parser = subparsers.add_parser("version-diff", help=_COMMAND_HELP["version-diff"])
+    version_diff_parser.add_argument("resource")
+    version_diff_parser.add_argument("--left-revision", required=True)
+    version_diff_parser.add_argument("--right-revision", required=True)
+    _add_source_repo_type_args(version_diff_parser)
+    version_diff_parser.add_argument('--token', default=None)
+    version_diff_parser.add_argument('--endpoint', default=None)
+    version_diff_parser.add_argument('--json', action='store_true')
 
     get_parser = subparsers.add_parser("get", help=_COMMAND_HELP["get"])
     get_parser.add_argument("resource", nargs="+", help="Resource URI/repo, or SOURCE RESOURCE for compatibility")
@@ -400,6 +459,8 @@ def main():
     get_parser.add_argument('--timeout', type=float, default=None)
     get_parser.add_argument('--retries', type=int, default=None)
     get_parser.add_argument('--no-resume', action='store_true', help='Disable backend resume behavior where supported')
+    get_parser.add_argument('--dry-run', action='store_true', help='Show a download plan and warnings without downloading')
+    get_parser.add_argument('--json', action='store_true', help='Print dry-run plan as JSON')
 
     sources_parser = subparsers.add_parser("sources", help=_COMMAND_HELP["sources"])
     sources_subparsers = sources_parser.add_subparsers(dest="sources_command")
@@ -493,6 +554,41 @@ def main():
     catalog_gate_parser.add_argument('--fail-on', choices=['low', 'medium', 'high'], default=None)
     catalog_gate_parser.add_argument('--policy', default=None)
     catalog_gate_parser.add_argument('--json', action='store_true')
+
+    label_parser = subparsers.add_parser("label", help=_COMMAND_HELP["label"])
+    label_subparsers = label_parser.add_subparsers(dest="label_command")
+    label_set_parser = label_subparsers.add_parser("set", help="Set local metadata for a resource")
+    label_set_parser.add_argument("resource")
+    _add_source_repo_type_args(label_set_parser)
+    label_set_parser.add_argument('--tag', action='append', default=None, help='Add a tag; repeatable')
+    label_set_parser.add_argument('--remove-tag', action='append', default=None)
+    label_set_parser.add_argument('--note', default=None)
+    label_set_parser.add_argument('--favorite', action='store_true')
+    label_set_parser.add_argument('--unfavorite', action='store_true')
+    label_set_parser.add_argument('--status', choices=['candidate', 'evaluating', 'approved', 'production', 'deprecated'], default=None)
+    label_set_parser.add_argument('--project', default=None)
+    label_set_parser.add_argument('--json', action='store_true')
+    label_list_parser = label_subparsers.add_parser("list", help="List saved resource metadata")
+    label_list_parser.add_argument('--project', default=None)
+    label_list_parser.add_argument('--favorites', action='store_true')
+    label_list_parser.add_argument('--json', action='store_true')
+    label_export_parser = label_subparsers.add_parser("export", help="Export a project resource set")
+    label_export_parser.add_argument("project")
+    label_export_parser.add_argument('--output', '-o', default=None)
+    label_export_parser.add_argument('--json', action='store_true')
+
+    audit_parser = subparsers.add_parser("audit", help=_COMMAND_HELP["audit"])
+    audit_parser.add_argument('--limit', type=int, default=50)
+    audit_parser.add_argument('--action', default=None)
+    audit_parser.add_argument('--resource', default=None)
+    audit_parser.add_argument('--json', action='store_true')
+
+    policy_parser = subparsers.add_parser("policy", help=_COMMAND_HELP["policy"])
+    policy_subparsers = policy_parser.add_subparsers(dest="policy_command")
+    policy_template_parser = policy_subparsers.add_parser("template", help="Print or write a built-in policy template")
+    policy_template_parser.add_argument("name", nargs="?", choices=['permissive', 'balanced', 'strict'], default="balanced")
+    policy_template_parser.add_argument('--output', '-o', default=None)
+    policy_template_parser.add_argument('--json', action='store_true')
 
     doctor_parser = subparsers.add_parser("doctor", help=_COMMAND_HELP["doctor"])
     doctor_parser.add_argument("query")
@@ -862,7 +958,10 @@ def main():
                                     release=args.release)
             from .files import filter_files
             files = filter_files(files, include, exclude)
-            print_file_list(files, ref.source, ref.repo_id, as_json=args.json, summary=args.summary)
+            if args.tree:
+                print_file_tree(files, as_json=args.json)
+            else:
+                print_file_list(files, ref.source, ref.repo_id, as_json=args.json, summary=args.summary)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -881,6 +980,16 @@ def main():
             card = get_card(args.resource, revision=args.revision, token=args.token, endpoint=args.endpoint,
                             source=args.source, repo_type=args.repo_type)
             print_card(card, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "detail":
+        try:
+            detail = get_resource_detail(args.resource, revision=args.revision, token=args.token,
+                                         endpoint=args.endpoint, include=args.include, exclude=args.exclude,
+                                         profile=args.profile, deep=args.deep,
+                                         source=args.source, repo_type=args.repo_type)
+            print_resource_detail(detail, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -925,6 +1034,14 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
+    elif args.command == "license":
+        try:
+            print_license_risk(license_risk(args.resource, revision=args.revision, token=args.token,
+                                            endpoint=args.endpoint, source=args.source, repo_type=args.repo_type),
+                               as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
     elif args.command == "compare":
         try:
             result = compare_resources(args.left, args.right, revision_left=args.revision_left,
@@ -932,6 +1049,24 @@ def main():
                                        include_files=args.files, include_card=args.card,
                                        include_formats=args.formats, deep=args.deep)
             print_comparison(result, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "compare-many":
+        try:
+            result = compare_many_resources(args.resources, revision=args.revision, token=args.token,
+                                            endpoint=args.endpoint, include=args.include, exclude=args.exclude,
+                                            profile=args.profile, deep=args.deep,
+                                            source=args.source, repo_type=args.repo_type)
+            print_many_comparison(result, as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "version-diff":
+        try:
+            result = diff_resource_revisions(args.resource, left_revision=args.left_revision, right_revision=args.right_revision,
+                                             token=args.token, endpoint=args.endpoint, source=args.source, repo_type=args.repo_type)
+            print_revision_diff(result, as_json=args.json)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -944,6 +1079,13 @@ def main():
                 resource = resource_parts[0]
             else:
                 raise ValueError("Usage: modely get [--source SOURCE] RESOURCE or modely get SOURCE RESOURCE")
+            if args.dry_run:
+                plan = create_download_plan(resource, source=args.source, repo_type=args.repo_type,
+                                            revision=args.revision, include=args.include, exclude=args.exclude,
+                                            profile=args.profile, token=args.token, endpoint=args.endpoint,
+                                            cache_dir=args.cache_dir, local_dir=args.local_dir)
+                print_download_plan(plan, as_json=args.json)
+                return
             result = download_resource(
                 resource,
                 source=args.source,
@@ -1111,6 +1253,54 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
+    elif args.command == "label":
+        try:
+            if args.label_command == "set":
+                favorite = None
+                if args.favorite:
+                    favorite = True
+                if args.unfavorite:
+                    favorite = False
+                record = update_asset_record(args.resource, source=args.source, repo_type=args.repo_type,
+                                             add_tags=args.tag, remove_tags=args.remove_tag, note=args.note,
+                                             favorite=favorite, status=args.status, project=args.project)
+                print_asset_metadata({"resources": {args.resource: record}, "projects": {}}, as_json=args.json)
+            elif args.label_command == "list":
+                print_asset_metadata(list_asset_metadata(project=args.project, favorites=args.favorites), as_json=args.json)
+            elif args.label_command == "export":
+                payload = export_project(args.project)
+                if args.output:
+                    with open(args.output, "w") as f:
+                        json.dump(payload, f, indent=2, ensure_ascii=False)
+                    print(f"Wrote project export to: {args.output}")
+                else:
+                    print_project_export(payload, as_json=args.json)
+            else:
+                print("Usage: modely label [set|list]")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "audit":
+        try:
+            print_audit_events(list_audit_events(limit=args.limit, action=args.action, resource=args.resource), as_json=args.json)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.command == "policy":
+        try:
+            if args.policy_command == "template":
+                template = write_policy_template(args.name, args.output)
+                if args.output:
+                    print(f"Wrote policy template to: {args.output}")
+                else:
+                    print(json.dumps(template, indent=2, ensure_ascii=False))
+            else:
+                print("Usage: modely policy template [permissive|balanced|strict]")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
     elif args.command == "doctor":
         try:
             print_doctor_report(doctor_resource(args.query, source=args.source, repo_type=args.repo_type,
@@ -1247,6 +1437,7 @@ def cache_main(args=None):
         clean_parser.add_argument("repo_id", nargs="?", default=None)
         config_parser = subparsers.add_parser("config")
         config_parser.add_argument("--set", type=str, default=None)
+        config_parser.add_argument("--set-shared", type=str, default=None)
         dedupe_parser = subparsers.add_parser("dedupe")
         dedupe_parser.add_argument("--dry-run", action="store_true")
         dedupe_parser.add_argument("--json", action="store_true")
@@ -1291,11 +1482,15 @@ def cache_main(args=None):
         if hasattr(args, "set") and args.set:
             cache.set_cache_dir(args.set)
             print(f"Cache directory set to: {args.set}")
-        else:
+        if hasattr(args, "set_shared") and args.set_shared:
+            cache.set_shared_cache_dir(args.set_shared)
+            print(f"Shared cache directory set to: {args.set_shared}")
+        if not (getattr(args, "set", None) or getattr(args, "set_shared", None)):
             info = cache.cache_info(cache_dir)
             print(f"Current cache directory: {info['cache_dir']}")
+            print(f"Shared cache directory: {info.get('shared_cache_dir') or '-'}")
             config = cache._load_config()
-            if "cache_dir" in config:
+            if "cache_dir" in config or "shared_cache_dir" in config:
                 print(f"Configured in: {cache.CONFIG_FILE}")
 
     elif args.cache_command == "dedupe":

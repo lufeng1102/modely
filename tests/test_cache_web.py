@@ -20,11 +20,15 @@ def test_build_cache_browser_data_groups_cached_assets(tmp_path):
     assert data["summary"]["total_entries"] == 1
     assert data["filters"]["sources"] == ["hf"]
     assert data["filters"]["repo_types"] == ["model"]
+    assert data["insights"]["by_source"][0]["name"] == "hf"
+    assert data["insights"]["by_repo_type"][0]["name"] == "model"
+    assert data["insights"]["largest_entries"][0]["repo_id"] == "org/model"
     entry = data["entries"][0]
     assert entry["repo_id"] == "org/model"
     assert entry["file_count"] == 2
     assert entry["categories"]["weights"] == 1
     assert entry["categories"]["metadata"] == 1
+    assert entry["health"]["status"] == "ok"
 
 
 def test_render_cache_index_contains_cards_and_filters(tmp_path):
@@ -49,6 +53,10 @@ def test_render_cache_index_contains_cards_and_filters(tmp_path):
     assert 'data-repo-type="model"' in html
     assert 'data-revision="main"' in html
     assert "activeFilters" in html
+    assert "Size by source" in html
+    assert "Largest entries" in html
+    assert "Cleanup plan" in html
+    assert "Ready" in html
     assert "badge-source" in html
     assert "badge-type" in html
     assert "category-pill" in html

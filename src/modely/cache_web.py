@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .catalog import scan_catalog
 from .common import cache
-from .files import format_file_size
+from .files import classify_file as _classify_file, format_file_size
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8765
@@ -37,10 +37,12 @@ def build_cache_browser_data(cache_dir: str | None = None) -> dict:
             "file_count": entry.file_count,
             "files": files,
             "categories": _file_categories(files),
+            "health": _entry_health(entry.file_count, size),
         })
     return {
         "cache": info,
         "summary": report.summary,
+        "insights": _cache_insights(entries),
         "entries": entries,
         "filters": {
             "sources": sorted({entry["source"] for entry in entries}),
@@ -58,6 +60,7 @@ def render_cache_index(data: dict) -> str:
         entries_html = "<section class='empty'>No cached repositories found. Run <code>modely-ai get ...</code> first.</section>"
     summary = data.get("summary") or {}
     cache_info = data.get("cache") or {}
+    insights = data.get("insights") or {}
     filters = data.get("filters") or {}
     return f"""<!doctype html>
 <html lang="en">
@@ -90,6 +93,7 @@ def render_cache_index(data: dict) -> str:
         <input id="search" type="search" placeholder="Search cached repos..." oninput="filterCards()">
         <a class="api-link" href="/api/catalog">JSON catalog</a>
       </div>
+      {_render_insights(insights)}
       <div id="cards" class="cards">{entries_html}</div>
     </section>
   </main>
@@ -156,25 +160,117 @@ def _cache_dir_from_query(query: str, default: str | None) -> str | None:
     return values[0] if values else default
 
 
+def _entry_health(file_count: int, size: int) -> dict:
+    """Return a lightweight local health label for cache entries."""
+    if file_count <= 0:
+        return {"status": "empty", "label": "Empty", "message": "No cached files found in this revision."}
+    if size <= 0:
+        return {"status": "unknown", "label": "Unknown", "message": "Files are present but size metadata is empty."}
+    return {"status": "ok", "label": "Ready", "message": "Cached files are present locally."}
+
+
+def _cache_insights(entries: list[dict]) -> dict:
+    """Build cache management insights for the browser UI."""
+    by_source = _size_breakdown(entries, "source")
+    by_repo_type = _size_breakdown(entries, "repo_type")
+    largest_entries = sorted(entries, key=lambda item: item.get("size", 0), reverse=True)[:5]
+    empty_entries = [entry for entry in entries if (entry.get("file_count") or 0) == 0]
+    large_entries = [entry for entry in entries if (entry.get("size") or 0) >= 10_000_000_000]
+    return {
+        "by_source": by_source,
+        "by_repo_type": by_repo_type,
+        "largest_entries": [_insight_entry(entry) for entry in largest_entries],
+        "cleanup_suggestions": _cleanup_suggestions(empty_entries, large_entries),
+    }
+
+
+def _size_breakdown(entries: list[dict], field: str) -> list[dict]:
+    totals = {}
+    for entry in entries:
+        key = entry.get(field) or "unknown"
+        totals[key] = totals.get(key, 0) + (entry.get("size") or 0)
+    return [
+        {"name": name, "size": size, "size_str": format_file_size(size)}
+        for name, size in sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+
+def _insight_entry(entry: dict) -> dict:
+    return {
+        "repo_id": entry.get("repo_id", "-"),
+        "source": entry.get("source", "unknown"),
+        "repo_type": entry.get("repo_type", "unknown"),
+        "revision": entry.get("revision", "unknown"),
+        "size": entry.get("size", 0),
+        "size_str": entry.get("size_str") or format_file_size(entry.get("size", 0)),
+        "file_count": entry.get("file_count", 0),
+    }
+
+
+def _cleanup_suggestions(empty_entries: list[dict], large_entries: list[dict]) -> list[dict]:
+    suggestions = []
+    if empty_entries:
+        suggestions.append({
+            "title": f"{len(empty_entries)} empty cache revision(s)",
+            "detail": "These entries have no files and are candidates for cleanup after review.",
+        })
+    if large_entries:
+        suggestions.append({
+            "title": f"{len(large_entries)} large cache revision(s)",
+            "detail": "Review large entries before deleting or moving them to shared storage.",
+        })
+    if not suggestions:
+        suggestions.append({"title": "No obvious cleanup candidates", "detail": "Cache entries have local files and no large-entry warning was triggered."})
+    return suggestions
+
+
 def _file_categories(files: list[dict]) -> dict:
     categories = {}
     for file_info in files:
-        name = (file_info.get("name") or "").lower()
-        category = _file_category(name)
+        category = _cache_file_category(file_info.get("name") or "")
         categories[category] = categories.get(category, 0) + 1
     return categories
 
 
-def _file_category(name: str) -> str:
-    if name.startswith("readme") or name.endswith(".md"):
-        return "card"
-    if name.endswith((".safetensors", ".bin", ".pt", ".pth", ".gguf", ".onnx")):
+def _cache_file_category(path: str) -> str:
+    category = _classify_file(path)
+    if category in {"safetensors", "gguf"}:
         return "weights"
-    if "tokenizer" in name or name.endswith(("vocab.txt", "merges.txt")):
-        return "tokenizer"
-    if name.endswith((".json", ".yaml", ".yml")):
+    if category == "config":
         return "metadata"
-    return "other"
+    return category
+
+
+def _render_insights(insights: dict) -> str:
+    """Render cache insight panels."""
+    if not insights:
+        return ""
+    by_source = _render_breakdown("Size by source", insights.get("by_source") or [])
+    by_type = _render_breakdown("Size by type", insights.get("by_repo_type") or [])
+    largest = "".join(
+        f"<li><span>{_esc(item.get('repo_id', '-'))}</span><em>{_esc(item.get('size_str', '-'))}</em></li>"
+        for item in insights.get("largest_entries") or []
+    ) or "<li><span>No cached entries</span><em>-</em></li>"
+    suggestions = "".join(
+        f"<li><strong>{_esc(item.get('title', '-'))}</strong><span>{_esc(item.get('detail', ''))}</span></li>"
+        for item in insights.get("cleanup_suggestions") or []
+    )
+    return f"""
+<div class="insights">
+  {by_source}
+  {by_type}
+  <section class="insight-panel"><h2>Largest entries</h2><ul class="insight-list">{largest}</ul></section>
+  <section class="insight-panel"><h2>Cleanup plan</h2><ul class="suggestions">{suggestions}</ul></section>
+</div>
+"""
+
+
+def _render_breakdown(title: str, items: list[dict]) -> str:
+    rows = "".join(
+        f"<li><span>{_esc(item.get('name', '-'))}</span><em>{_esc(item.get('size_str', '-'))}</em></li>"
+        for item in items
+    ) or "<li><span>No data</span><em>-</em></li>"
+    return f"<section class='insight-panel'><h2>{_esc(title)}</h2><ul class='insight-list'>{rows}</ul></section>"
 
 
 def _render_filter_group(title: str, kind: str, values: list[str]) -> str:
@@ -190,6 +286,10 @@ def _render_filter_group(title: str, kind: str, values: list[str]) -> str:
 
 def _render_entry_card(entry: dict) -> str:
     files = entry.get("files") or []
+    health = entry.get("health") or {}
+    health_status = health.get("status", "unknown")
+    health_label = health.get("label", "Unknown")
+    health_message = health.get("message", "")
     top_files = "".join(
         f"<li><span>{_esc(file_info.get('name', ''))}</span><em>{_esc(file_info.get('size_str') or format_file_size(file_info.get('size', 0)))}</em></li>"
         for file_info in files[:8]
@@ -207,13 +307,14 @@ def _render_entry_card(entry: dict) -> str:
       <h2>{_esc(entry.get('repo_id', '-'))}</h2>
       <p>{_esc(entry.get('local_path', '-'))}</p>
     </div>
-    <div class="badges"><span class="badge badge-source">{_esc(entry.get('source', 'unknown'))}</span><span class="badge badge-type">{_esc(entry.get('repo_type', 'unknown'))}</span></div>
+    <div class="badges"><span class="badge badge-source">{_esc(entry.get('source', 'unknown'))}</span><span class="badge badge-type">{_esc(entry.get('repo_type', 'unknown'))}</span><span class="badge badge-health badge-health-{_esc(health_status)}">{_esc(health_label)}</span></div>
   </div>
   <div class="meta">
     <span>Revision <strong>{_esc(entry.get('revision', '-'))}</strong></span>
     <span>Size <strong>{_esc(entry.get('size_str', '-'))}</strong></span>
     <span>Files <strong>{entry.get('file_count', 0)}</strong></span>
   </div>
+  <p class="health-note">{_esc(health_message)}</p>
   <div class="categories">{categories}</div>
   <details>
     <summary>Show files</summary>
@@ -253,6 +354,9 @@ h1 { margin: 0; font-size: 34px; letter-spacing: -0.03em; }
 .badge::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: currentColor; opacity: .72; }
 .badge-source { background: linear-gradient(135deg, #fff4df, #ffe3ad); color: #8a5200; border: 1px solid #ffd28a; }
 .badge-type { background: linear-gradient(135deg, #eef5ff, #dcecff); color: #28537f; border: 1px solid #c5ddfb; }
+.badge-health-ok { background: linear-gradient(135deg, #edfff2, #d6f6de); color: #245333; border: 1px solid #bfe8c9; }
+.badge-health-empty { background: linear-gradient(135deg, #fff1ee, #ffd9d1); color: #8b2f1d; border: 1px solid #ffc4b8; }
+.badge-health-unknown { background: linear-gradient(135deg, #f7f4ee, #ebe6dc); color: #5f574c; border: 1px solid #ded7ca; }
 .category-pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 999px; padding: 5px 6px 5px 10px; color: #514c45; font-size: 12px; line-height: 1; }
 .category-pill b { font-weight: 700; }
 .category-pill em { min-width: 20px; padding: 3px 6px; border-radius: 999px; background: rgba(255,255,255,.8); color: #3f3a34; font-style: normal; font-weight: 750; text-align: center; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
@@ -268,6 +372,15 @@ button.chip.active { background: #fff1d6; border-color: var(--accent); color: #7
 .clear-filters[hidden] { display: none; }
 .content { min-width: 0; }
 .toolbar { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.insights { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.insight-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.03); min-width: 0; }
+.insight-panel h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.insight-list, .suggestions { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.insight-list li { display: flex; justify-content: space-between; gap: 12px; }
+.insight-list span, .suggestions span { color: var(--muted); word-break: break-word; }
+.insight-list em { color: var(--text); font-style: normal; font-weight: 700; white-space: nowrap; }
+.suggestions li { display: grid; gap: 3px; }
+.suggestions strong { color: var(--text); }
 input[type=search] { width: min(520px, 100%); border: 1px solid var(--line); border-radius: 999px; padding: 12px 16px; background: #fff; font: inherit; }
 .api-link { align-self: center; color: #7a4a00; text-decoration: none; font-weight: 600; }
 .cards { display: grid; gap: 16px; }
@@ -275,8 +388,9 @@ input[type=search] { width: min(520px, 100%); border: 1px solid var(--line); bor
 .card-head { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
 .card h2 { margin: 0; font-size: 20px; }
 .card p { margin: 6px 0 0; color: var(--muted); word-break: break-all; }
-.meta { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0 8px; color: var(--muted); }
 .meta strong { color: var(--text); }
+.health-note { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
 details { margin-top: 14px; }
 summary { cursor: pointer; font-weight: 650; }
 .files { list-style: none; padding: 0; margin: 12px 0 0; border-top: 1px solid var(--line); }
@@ -284,7 +398,8 @@ summary { cursor: pointer; font-weight: 650; }
 .files span { word-break: break-all; }
 .files em { color: var(--muted); font-style: normal; white-space: nowrap; }
 .empty { padding: 32px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; color: var(--muted); }
-@media (max-width: 820px) { .card-head, .toolbar { flex-direction: column; align-items: stretch; } .hero { grid-template-columns: 1fr; padding: 24px 20px; } .layout { grid-template-columns: 1fr; padding: 20px; } }
+@media (max-width: 1100px) { .insights { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 820px) { .card-head, .toolbar { flex-direction: column; align-items: stretch; } .hero { grid-template-columns: 1fr; padding: 24px 20px; } .layout, .insights { grid-template-columns: 1fr; padding: 20px; } .insights { padding: 0; } }
 """
 
 _JS = """

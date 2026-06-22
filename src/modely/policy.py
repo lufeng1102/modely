@@ -8,6 +8,43 @@ from typing import Optional
 from .types import CatalogReport, ScanResult
 
 _SEVERITY = {"low": 1, "medium": 2, "high": 3}
+_POLICY_TEMPLATES = {
+    "permissive": {
+        "fail_on": "high",
+        "deny_sources": [],
+        "deny_licenses": [],
+        "ignore_finding_ids": [],
+    },
+    "balanced": {
+        "fail_on": "medium",
+        "deny_licenses": ["unknown", "other"],
+        "deny_finding_ids": ["pickle-artifact", "remote-code"],
+        "min_score": 60,
+    },
+    "strict": {
+        "fail_on": "low",
+        "allow_licenses": ["apache-2.0", "mit", "bsd-3-clause"],
+        "deny_finding_ids": ["pickle-artifact", "remote-code", "missing-license"],
+        "require_checksums": True,
+        "min_score": 80,
+    },
+}
+
+
+def policy_template(name: str = "balanced") -> dict:
+    """Return a built-in policy template."""
+    if name not in _POLICY_TEMPLATES:
+        raise ValueError(f"Unknown policy template: {name}")
+    return json.loads(json.dumps(_POLICY_TEMPLATES[name]))
+
+
+def write_policy_template(name: str, output: Optional[str] = None) -> dict:
+    """Write or return a built-in policy template."""
+    template = policy_template(name)
+    if output:
+        with open(output, "w") as f:
+            json.dump(template, f, indent=2, ensure_ascii=False)
+    return template
 
 
 def load_policy(path: Optional[str]) -> dict:

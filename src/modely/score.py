@@ -38,6 +38,11 @@ def score_resource(
         source=source,
         repo_type=repo_type,
     )
+    return score_analysis(resource, analysis, revision=revision, deep=deep, profile=profile, include=include, exclude=exclude)
+
+
+def score_analysis(resource: str, analysis: AssetAnalysis, *, revision=None, deep: bool = True, profile=None, include=None, exclude=None) -> AssetScore:
+    """Score an existing asset analysis without fetching metadata again."""
     return _score_analysis(resource, analysis, revision=revision, deep=deep, profile=profile, include=include, exclude=exclude)
 
 

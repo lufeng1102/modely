@@ -129,8 +129,7 @@ def print_file_list(files, source, repo_id, *, as_json=False, summary=False):
     headers = ["Path", "Size", "Type"]
     rows = []
     col_widths = [len(h) for h in headers]
-    for f in files:
-        d = _file_to_dict(f)
+    for d in _file_rows(files):
         row = [d.get("path", "-"), format_file_size(d.get("size", 0)), d.get("type", "blob")]
         rows.append(row)
         for i, cell in enumerate(row):
@@ -149,6 +148,23 @@ def print_file_list(files, source, repo_id, *, as_json=False, summary=False):
         print()
 
 
+def print_file_tree(files, *, as_json=False):
+    """Print files grouped as a lightweight tree with categories."""
+    rows = sorted(_file_rows(files), key=lambda item: item["path"])
+    if as_json:
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return
+    if not rows:
+        print("No files found.")
+        return
+    for row in rows:
+        path = row["path"]
+        depth = path.count("/")
+        name = path.rsplit("/", 1)[-1]
+        prefix = "  " * depth + "- "
+        print(f"{prefix}{name} [{row['category']}] {format_file_size(row['size'])}")
+
+
 def do_dry_run(source, repo_id, repo_type, revision, allow_patterns, ignore_patterns, files):
     """Simulate a download and print a summary."""
     normalized = [_normalize_file(f) for f in files]
@@ -165,6 +181,14 @@ def do_dry_run(source, repo_id, repo_type, revision, allow_patterns, ignore_patt
         print(f"  Exclude:         {' '.join(ignore_patterns)}")
     print(f"  Would download:  {len(filtered)} file(s), {format_file_size(total_size)}")
     print()
+
+
+def _file_rows(files):
+    rows = []
+    for f in files:
+        normalized = _normalize_file(f)
+        rows.append({**normalized.to_dict(), "category": classify_file(normalized.path)})
+    return rows
 
 
 def _normalize_file(value):

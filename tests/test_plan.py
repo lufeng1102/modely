@@ -28,3 +28,22 @@ def test_plain_repo_plan_defaults_to_hf(monkeypatch, tmp_path):
     plan = create_download_plan("gpt2", cache_dir=str(tmp_path))
     assert plan.source == "hf"
     assert plan.warnings
+
+
+def test_large_unfiltered_plan_warns_to_use_filters(monkeypatch, tmp_path):
+    files = [FileInfo(f"part-{idx}.parquet", size=1) for idx in range(1001)]
+    monkeypatch.setattr("modely.plan.list_repo_files", lambda *args, **kwargs: files)
+
+    plan = create_download_plan("hf://datasets/org/data", cache_dir=str(tmp_path))
+
+    assert any("Large selection" in warning for warning in plan.warnings)
+    assert any("--include" in warning for warning in plan.warnings)
+
+
+def test_large_filtered_plan_does_not_warn(monkeypatch, tmp_path):
+    files = [FileInfo(f"part-{idx}.parquet", size=1) for idx in range(1001)]
+    monkeypatch.setattr("modely.plan.list_repo_files", lambda *args, **kwargs: files)
+
+    plan = create_download_plan("hf://datasets/org/data", include=["part-1.parquet"], cache_dir=str(tmp_path))
+
+    assert not any("Large selection" in warning for warning in plan.warnings)

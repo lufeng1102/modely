@@ -59,6 +59,21 @@ def test_info_cli_auto_repo_type_falls_back_to_dataset(monkeypatch, capsys):
     assert calls == ["model", "dataset"]
 
 
+def test_get_cli_dry_run_prints_download_plan(monkeypatch, capsys, tmp_path):
+    from modely.types import FileInfo
+
+    monkeypatch.setattr(sys, "argv", ["modely", "get", "--dry-run", "hf://datasets/org/data", "--cache-dir", str(tmp_path)])
+    monkeypatch.setattr("modely.plan.list_repo_files", lambda *args, **kwargs: [FileInfo("README.md", size=5)])
+
+    modely.main()
+
+    output = capsys.readouterr().out
+    assert "Source:        hf" in output
+    assert "Repo type:     dataset" in output
+    assert "Selected:      1" in output
+    assert "Downloaded to:" not in output
+
+
 # ── Hugging Face ──────────────────────────────────────────────
 
 @pytest.mark.integration

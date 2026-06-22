@@ -12,6 +12,9 @@ from .profiles import resolve_download_profile
 from .types import DownloadPlan
 from .uri import concrete_repo_type, normalize_repo_type, normalize_source, parse_modely_uri
 
+_LARGE_FILE_COUNT = 1000
+_LARGE_SIZE_BYTES = 10_000_000_000
+
 
 def create_download_plan(
     resource: str,
@@ -44,6 +47,7 @@ def create_download_plan(
     files = list_repo_files(ref, revision=ref.revision, token=token, endpoint=endpoint, release=release)
     selected = filter_files(files, include, exclude)
     summary = summarize_files(files, include, exclude)
+    warnings.extend(_preflight_warnings(summary, include=include, exclude=exclude, profile=profile))
     cache_hits = _estimate_cache_hits(ref.source, ref.repo_type, ref.repo_id, ref.revision, selected, cache_dir, local_dir)
     return DownloadPlan(
         source=ref.source,
@@ -95,6 +99,25 @@ def print_download_plan(plan: DownloadPlan, *, as_json: bool = False) -> None:
         print(f"Cache dir:     {plan.cache_dir}")
     for warning in plan.warnings:
         print(f"Warning: {warning}")
+
+
+def _preflight_warnings(summary, *, include=None, exclude=None, profile=None) -> list[str]:
+    """Return download-before-confirmation warnings for large selections."""
+    if not summary:
+        return []
+    warnings = []
+    has_selection = bool(include or exclude or profile)
+    if summary.selected_files >= _LARGE_FILE_COUNT and not has_selection:
+        warnings.append(
+            f"Large selection: {summary.selected_files} files selected. "
+            "Consider --include/--exclude or --profile before downloading."
+        )
+    if summary.selected_size >= _LARGE_SIZE_BYTES and not has_selection:
+        warnings.append(
+            f"Large download: {format_file_size(summary.selected_size)} selected. "
+            "Use filters or a profile to avoid downloading unnecessary files."
+        )
+    return warnings
 
 
 def _estimate_cache_hits(source, repo_type, repo_id, revision, files, cache_dir, local_dir) -> int:

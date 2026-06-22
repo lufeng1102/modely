@@ -21,6 +21,8 @@ from modely.common.cache import (
     get_file_path,
     is_cached,
     get_cached_repo_path,
+    get_shared_cache_dir,
+    set_shared_cache_dir,
     list_cache,
     clean_cache,
     cache_info,
@@ -75,6 +77,16 @@ class TestCacheDir:
         monkeypatch.setenv("MODELY_CACHE", tmp_cache)
         result = get_cache_dir()
         assert result == os.path.abspath(tmp_cache)
+
+    def test_shared_cache_config(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.json"
+        monkeypatch.setattr("modely.common.cache.CONFIG_FILE", str(config_file))
+        shared = tmp_path / "shared"
+
+        set_shared_cache_dir(str(shared))
+
+        assert get_shared_cache_dir() == os.path.abspath(shared)
+        assert cache_info()["shared_cache_dir"] == os.path.abspath(shared)
 
 
 class TestCacheStructure:

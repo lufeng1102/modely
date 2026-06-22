@@ -71,6 +71,19 @@ def set_cache_dir(cache_dir: str) -> None:
     _save_config(config)
 
 
+def set_shared_cache_dir(cache_dir: str) -> None:
+    """Set a shared team cache directory in config file."""
+    config = _load_config()
+    config["shared_cache_dir"] = os.path.abspath(cache_dir)
+    _save_config(config)
+
+
+def get_shared_cache_dir() -> Optional[str]:
+    """Return configured shared cache directory, if any."""
+    value = os.environ.get("MODELY_SHARED_CACHE") or _load_config().get("shared_cache_dir")
+    return os.path.abspath(value) if value else None
+
+
 def get_source_cache_dir(source: str, cache_dir: Optional[str] = None) -> str:
     """Get cache directory for a specific source (hf or ms)."""
     base = get_cache_dir(cache_dir)
@@ -161,6 +174,7 @@ def cache_info(cache_dir: Optional[str] = None) -> Dict:
 
     return {
         "cache_dir": cache_dir,
+        "shared_cache_dir": get_shared_cache_dir(),
         "total_size": total_size,
         "total_size_str": _format_size(total_size),
         "config_file": CONFIG_FILE,
