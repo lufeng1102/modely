@@ -1,10 +1,16 @@
 # modely-ai
 
-**modely-ai** is a Python package that provides a unified interface for downloading, discovering, comparing, and governing AI models and datasets from multiple platforms including Hugging Face, ModelScope, GitHub, and Kaggle. It offers a command-line tool and Python API for cross-platform model asset workflows: search, resolve equivalent resources, choose reliable download sources, analyze metadata/files, score health, scan risks, create reproducible lockfiles, and catalog local assets.
+**modely-ai** is a cross-platform AI asset workspace for discovering, downloading, comparing, locking, scanning, and governing models, datasets, and AI repositories across Hugging Face, ModelScope, GitHub, and Kaggle.
+
+中文：**modely-ai** 是一个跨平台 AI 资产工作台，用于在 Hugging Face、ModelScope、GitHub、Kaggle 等来源之间发现、下载、比较、锁定、扫描和治理模型、数据集与工具仓库。
+
+It offers a command-line tool and Python API for cross-platform asset workflows: search, resolve equivalent resources, choose reliable download sources, analyze metadata/files, score health, scan risks, create reproducible lockfiles, and catalog local assets.
 
 ## Positioning
 
-modely-ai is designed as a cross-platform AI model asset manager rather than a single-source downloader. Single platforms can help users find and download resources hosted in that platform; modely-ai focuses on workflows that require a broader view across sources:
+modely-ai complements platform-native tools by providing a unified cross-source asset workflow before models and datasets enter a project or registry. It is designed as a cross-platform AI asset workspace rather than a replacement for Hugging Face Hub, Kaggle CLI, DVC, MLflow, Git-LFS, or git/GitHub CLI.
+
+Single platforms can help users find and download resources hosted in that platform; modely-ai focuses on workflows that require a broader view across sources:
 
 - **Cross-source discovery**: search Hugging Face, ModelScope, GitHub, and Kaggle through one schema.
 - **Equivalent-resource resolution**: identify likely matches for the same model or dataset across platforms with confidence signals.
@@ -13,6 +19,64 @@ modely-ai is designed as a cross-platform AI model asset manager rather than a s
 - **Health and risk evaluation**: score asset quality and scan metadata/security/reproducibility risks without downloading weights.
 - **Reproducible installs**: create lockfiles, install from them, and validate local files/checksums.
 - **Local asset governance**: catalog downloaded or cached assets for inventory, reporting, and future policy checks.
+
+### Source Support Matrix
+
+| Source | Search | Download | Files | Info | Compare | Score | Scan | Lock | Cache | Notes |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| Hugging Face | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Official SDK |
+| ModelScope | ✅ | ✅ | ✅/partial | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Optional official SDK |
+| GitHub | ✅ | ✅ | ✅ | ✅ | ✅ | Partial | ✅ | ✅ | ✅ | Always treated as `tool` |
+| Kaggle | Partial | Partial | Partial | Partial | Partial | Partial | Partial | Partial | Partial | Requires Kaggle environment |
+
+### Boundaries with Native Tools
+
+modely-ai should be used alongside native tools, not as a blanket replacement:
+
+- Use Hugging Face Hub CLI/SDK for deep Hugging Face repository operations.
+- Use Kaggle CLI/API for Kaggle competition submissions and platform-native Kaggle workflows.
+- Use git/GitHub CLI for source-control collaboration, pull requests, issues, and repository administration.
+- Use Git-LFS for large-file versioning inside Git repositories.
+- Use DVC for training pipeline reproducibility, data/model versioning, and stage dependency tracking.
+- Use MLflow Model Registry or a similar registry for model lifecycle management, promotion, aliases, and lineage.
+
+### Reporting and Policy Output Roadmap
+
+modely-ai commands increasingly favor scriptable and policy-friendly outputs. Priority commands for consistent JSON, Markdown, CSV, and policy-summary output are:
+
+- `compare`
+- `compare-many`
+- `score`
+- `scan`
+- `catalog scan`
+- `catalog gate`
+- `license`
+- `audit`
+
+### Integration Guides
+
+See `docs/integrations/` for how modely-ai works with platform-native and MLOps tools:
+
+- [`docs/integrations/huggingface.md`](docs/integrations/huggingface.md)
+- [`docs/integrations/modelscope.md`](docs/integrations/modelscope.md)
+- [`docs/integrations/kaggle.md`](docs/integrations/kaggle.md)
+- [`docs/integrations/github.md`](docs/integrations/github.md)
+- [`docs/integrations/dvc.md`](docs/integrations/dvc.md)
+- [`docs/integrations/mlflow.md`](docs/integrations/mlflow.md)
+- [`docs/integrations/git-lfs.md`](docs/integrations/git-lfs.md)
+
+### Security and Compliance Roadmap
+
+Future governance improvements should continue strengthening:
+
+- license classification evidence and SPDX normalization
+- secret detection rules
+- remote code warnings
+- pickle artifact warnings
+- unsafe weight format warnings
+- policy templates
+- CI gate examples
+- allowlists and denylists
 
 ## Features
 
@@ -723,6 +787,7 @@ Common options:
 - `--max-workers N`: Pass concurrency through to supported backends such as Hugging Face snapshot downloads.
 - `--retries N`: Retry unified `get` backend calls before failing.
 - `--timeout SECONDS`: Pass timeout controls to supported HTTP/probe backends.
+- `--backend {auto,official,lightweight}` or a registered backend name such as `hf-sdk`, `modelscope-official`, `modelscope-lightweight`, `github-git`, `github-http`, or `kaggle-api`: Select the backend implementation where supported.
 - `--no-resume`: Disable backend resume behavior where supported by `get`.
 
 #### Command Notes
@@ -743,7 +808,7 @@ Common options:
 - `cache serve` starts a read-only local cache browser at `http://127.0.0.1:8765` by default, showing cached assets by source, type, revision, size, and file list in a card-based web UI.
 - `resolve` is search-based and heuristic: it finds likely equivalent resources across sources, assigns confidence scores, and explains matching signals. Use `compare --files --card --formats --deep` to verify whether two candidates are actually identical.
 - `compare` performs a deep pairwise comparison of two explicit resources. `--files`, `--card`, `--formats`, and `--deep` add file diffs, normalized card metadata diffs, and format/deep-analysis deltas.
-- `capabilities` reports declared backend support and optional dependency availability.
+- `capabilities` reports registered backend support and optional dependency availability. Official SDK/API plugins include `hf-sdk`, `modelscope-official`, and `kaggle-api`; lightweight/API backends include `modelscope-lightweight`, `github-http`, and `github-git`.
 - `validate-lock` is local-only and verifies that files described by a lockfile exist under `--local-dir`. With `--checksum`, it also compares SHA256 values when present.
 - `sources probe` performs lightweight endpoint checks and should be treated as availability/latency routing rather than a full bandwidth benchmark.
 

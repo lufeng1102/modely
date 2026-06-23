@@ -2,43 +2,20 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 
+from .backend_registry import get_capability, list_capabilities
 from .types import BackendCapability
-
-_FEATURES = ["single_file", "snapshot", "resume", "retries", "timeout", "max_workers", "range_requests", "checksum", "auth", "mirror", "search", "info", "files"]
-
-
-def _supports(**kwargs):
-    return {name: bool(kwargs.get(name, False)) for name in _FEATURES}
-
-
-_BACKENDS = {
-    "hf-sdk": BackendCapability("hf-sdk", "hf", "official-sdk", supports=_supports(single_file=True, snapshot=True, resume=True, retries=True, timeout=True, max_workers=True, checksum=True, auth=True, mirror=True, search=True, info=True, files=True)),
-    "hf-xet": BackendCapability("hf-xet", "hf", "transport", available=importlib.util.find_spec("hf_xet") is not None, requires_extra="hf_xet", supports=_supports(snapshot=True, resume=True, retries=True, max_workers=True, auth=True, mirror=True), notes=["Optional high-performance Hugging Face transport when installed/configured."]),
-    "modelscope-official": BackendCapability("modelscope-official", "ms", "official-sdk", available=importlib.util.find_spec("modelscope") is not None, requires_extra="modelscope", supports=_supports(single_file=True, snapshot=True, resume=True, retries=True, timeout=True, auth=True, search=True, info=True, files=True)),
-    "modelscope-lightweight": BackendCapability("modelscope-lightweight", "ms", "http", supports=_supports(single_file=True, snapshot=True, resume=True, retries=True, timeout=True, range_requests=True, checksum=True, auth=True, mirror=True, info=True, files=True)),
-    "github-git": BackendCapability("github-git", "github", "git", supports=_supports(snapshot=True, retries=True, auth=True, files=True, info=True), notes=["Git clone backend; timeout/max-worker controls are limited."]),
-    "github-http": BackendCapability("github-http", "github", "http", supports=_supports(single_file=True, retries=True, timeout=True, auth=True, info=True, files=True)),
-    "kaggle-api": BackendCapability("kaggle-api", "kaggle", "official-api", available=importlib.util.find_spec("kaggle") is not None, requires_extra="kaggle", supports=_supports(single_file=True, snapshot=True, retries=True, auth=True, search=True, info=True, files=True)),
-    "generic-http": BackendCapability("generic-http", "http", "http", available=False, supports=_supports(single_file=True, resume=True, retries=True, timeout=True, range_requests=True, checksum=True), notes=["Declared for future generic URL support; not wired as a first-class source yet."]),
-}
-
-_ALIASES = {"hf": "hf-sdk", "ms": "modelscope-lightweight", "modelscope": "modelscope-lightweight", "github": "github-git", "kaggle": "kaggle-api"}
 
 
 def list_backends() -> list[BackendCapability]:
     """List known backend capabilities."""
-    return list(_BACKENDS.values())
+    return list_capabilities()
 
 
 def get_backend_capabilities(name: str) -> BackendCapability:
     """Return capabilities for a backend name or alias."""
-    key = _ALIASES.get(name, name)
-    if key not in _BACKENDS:
-        raise ValueError(f"Unknown backend: {name}")
-    return _BACKENDS[key]
+    return get_capability(name)
 
 
 def print_backend_capabilities(items, *, as_json: bool = False) -> None:

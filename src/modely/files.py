@@ -7,6 +7,7 @@ import json
 from typing import Iterable, List
 
 from .auth import get_token
+from .backend_registry import select_backend
 from .info import resolve_repo_ref
 from .types import FileInfo, FileSummary, RepoRef
 from .uri import parse_modely_uri
@@ -36,21 +37,8 @@ def list_repo_files(ref_or_uri, *, revision=None, token=None, endpoint=None, rel
     if revision:
         ref.revision = revision
     token = get_token(ref.source, token)
-    if ref.source == "hf":
-        from .hf import list_files
-        return list_files(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision or "main", token=token, endpoint=endpoint)
-    if ref.source == "ms":
-        from .modelscope import list_files
-        return list_files(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision, token=token)
-    if ref.source == "github":
-        from .github import github_list_files, github_release_assets
-        if release:
-            return github_release_assets(ref.repo_id, release=release, token=token)
-        return github_list_files(ref.repo_id, revision=ref.revision or "main", token=token)
-    if ref.source == "kaggle":
-        from .kaggle import kaggle_list_files
-        return kaggle_list_files(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision, token=token)
-    raise ValueError(f"Unsupported source: {ref.source}")
+    backend_plugin = select_backend(ref.source, "files")
+    return backend_plugin.files(ref, token=token, endpoint=endpoint, release=release)
 
 
 def filter_files(files: Iterable[FileInfo], allow_patterns=None, ignore_patterns=None) -> List[FileInfo]:

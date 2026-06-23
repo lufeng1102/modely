@@ -6,6 +6,7 @@ import json
 from typing import Optional
 
 from .auth import get_token
+from .backend_registry import select_backend
 from .types import RepoInfo, RepoRef
 from .uri import parse_modely_uri, repo_type_candidates, normalize_source
 
@@ -59,19 +60,8 @@ def _candidate_refs(ref: RepoRef, *, explicit: bool, repo_type: str) -> list[Rep
 
 
 def _repo_info_for_ref(ref: RepoRef, *, token=None, endpoint=None) -> RepoInfo:
-    if ref.source == "hf":
-        from .hf import get_repo_info as hf_info
-        return hf_info(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision or "main", token=token, endpoint=endpoint)
-    if ref.source == "ms":
-        from .modelscope import get_repo_info as ms_info
-        return ms_info(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision, token=token)
-    if ref.source == "github":
-        from .github import github_repo_info
-        return github_repo_info(ref.repo_id, revision=ref.revision or "main", token=token)
-    if ref.source == "kaggle":
-        from .kaggle import kaggle_repo_info
-        return kaggle_repo_info(ref.repo_id, repo_type=ref.repo_type, revision=ref.revision, token=token)
-    raise ValueError(f"Unsupported source: {ref.source}")
+    backend_plugin = select_backend(ref.source, "info")
+    return backend_plugin.info(ref, token=token, endpoint=endpoint)
 
 
 def print_repo_info(info: RepoInfo, *, as_json: bool = False) -> None:
