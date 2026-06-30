@@ -283,8 +283,8 @@ class TestHuggingFaceSearch:
         hf_mod.search_huggingface("test", full=True)
         assert captured["full"] is True
 
-    def test_full_flag_false_by_default(self, monkeypatch):
-        """Verify full=False by default (not full=True)."""
+    def test_full_flag_true_by_default(self, monkeypatch):
+        """Verify full=True by default (needed for author, license tags, etc.)."""
         captured = {}
 
         def mock_list_models(self, **kwargs):
@@ -293,7 +293,7 @@ class TestHuggingFaceSearch:
 
         monkeypatch.setattr(hf_mod.HfApi, "list_models", mock_list_models)
         hf_mod.search_huggingface("test")
-        assert captured.get("full") is False or captured.get("full") is None
+        assert captured.get("full") is True
 
     def test_limit_passed_to_api(self, monkeypatch):
         """Verify the limit parameter is passed to the API."""

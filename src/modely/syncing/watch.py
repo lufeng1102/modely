@@ -35,8 +35,8 @@ DEFAULT_CONFIG_FILE = os.path.join(str(Path.home()), ".modely", "watch.json")
 DEFAULT_STATE_FILE = os.path.join(str(Path.home()), ".modely", "watch_state.json")
 DEFAULT_LOG_FILE = os.path.join(str(Path.home()), ".modely", "watch.log")
 MARKER_PREFIX = "# modely-watch:"
-VALID_SOURCES = {"hf", "ms"}
-VALID_REPO_TYPES = {"model", "dataset"}
+VALID_SOURCES = {"hf", "ms", "github"}
+VALID_REPO_TYPES = {"model", "dataset", "tool"}
 VALID_DOWNLOADS = {"snapshot", "files"}
 WEEKDAYS = {
     "sun": 0,
@@ -175,6 +175,78 @@ def save_state(state_file: str, state: Dict) -> None:
         f.write("\n")
 
 
+def save_config(config: Dict, config_path: str) -> None:
+    """Persist the in-memory config dict back to the watch config JSON file."""
+    path = _expand_path(config_path)
+    _ensure_parent(path)
+    # Write targets in a format load_config() can re-read: keep state_file at the
+    # top level and serialize each normalized target back to a config-friendly dict.
+    serializable_targets = []
+    for target in config.get("targets", []):
+        t = {
+            "source": target["source"],
+            "repo_type": target.get("repo_type", "model"),
+            "repo_id": target["repo_id"],
+            "revision": target.get("revision", ""),
+            "download": target.get("download", "snapshot"),
+        }
+        if target.get("files"):
+            t["files"] = target["files"]
+        if target.get("allow_patterns"):
+            t["allow_patterns"] = target["allow_patterns"]
+        if target.get("ignore_patterns"):
+            t["ignore_patterns"] = target["ignore_patterns"]
+        if target.get("cache_dir"):
+            t["cache_dir"] = target["cache_dir"]
+        if target.get("local_dir"):
+            t["local_dir"] = target["local_dir"]
+        if target.get("token_env"):
+            t["token_env"] = target["token_env"]
+        serializable_targets.append(t)
+
+    payload = {
+        "state_file": config.get("state_file", DEFAULT_STATE_FILE),
+        "targets": serializable_targets,
+    }
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")
+
+
+def add_target(config_path: str, raw_target: Dict) -> Dict:
+    """Add a new target to the watch config and return the normalized target + key."""
+    config, path = load_config(config_path)
+    normalized = normalize_target(raw_target)
+    key = target_key(normalized)
+
+    # Check for duplicate
+    for existing in config["targets"]:
+        if target_key(existing) == key:
+            raise ValueError(f"Watch target already exists: {key}")
+
+    config["targets"].append(normalized)
+    save_config(config, path)
+    return {"key": key, "target": normalized}
+
+
+def remove_target(config_path: str, target_key_str: str) -> bool:
+    """Remove a target from the watch config by key.  Also cleans its state entry."""
+    config, path = load_config(config_path)
+    state = load_state(config["state_file"])
+
+    before = len(config["targets"])
+    config["targets"] = [t for t in config["targets"] if target_key(t) != target_key_str]
+    if len(config["targets"]) == before:
+        return False  # not found
+
+    save_config(config, path)
+    # Remove stale state entry if it exists
+    if target_key_str in state:
+        del state[target_key_str]
+        save_state(config["state_file"], state)
+    return True
+
+
 def _token_for_target(target: Dict) -> Optional[str]:
     token_env = target.get("token_env")
     return os.environ.get(token_env) if token_env else None
@@ -267,7 +339,22 @@ def get_remote_fingerprint(target: Dict) -> str:
     token = _token_for_target(target)
     if target["source"] == "hf":
         return _hf_fingerprint(target, token)
-    return _ms_fingerprint(target, token)
+    if target["source"] == "ms":
+        return _ms_fingerprint(target, token)
+    return _github_fingerprint(target, token)
+
+
+def _github_fingerprint(target: Dict, token: Optional[str]) -> str:
+    """Compute a fingerprint for a GitHub repository using last-updated and forks count.
+
+    This calls the repo info API (cheap, no rate-limit heavy tree listing).
+    Changes to commits, releases, or repo metadata update ``last_modified``.
+    """
+    from ..github import github_repo_info
+
+    info = github_repo_info(target["repo_id"], revision=target.get("revision") or "main", token=token)
+    fields = f"{info.last_modified or ''}|{info.forks}"
+    return hashlib.sha256(fields.encode("utf-8")).hexdigest()
 
 
 def _matches_patterns(path: str, allow_patterns: List[str], ignore_patterns: List[str]) -> bool:
@@ -386,7 +473,7 @@ def run_watch(config_path: Optional[str] = None) -> List[Dict]:
 
 
 def check_drift(config_path: Optional[str] = None) -> List[Dict]:
-    """Check configured targets for remote drift without downloading or updating state."""
+    """Check configured targets for remote drift without downloading, and update state."""
     config, _ = load_config(config_path)
     state = load_state(config["state_file"])
     results = []
@@ -396,9 +483,19 @@ def check_drift(config_path: Optional[str] = None) -> List[Dict]:
         try:
             fingerprint = get_remote_fingerprint(target)
             drifted = previous.get("fingerprint") != fingerprint
+            # Update state with current fingerprint so the next drift check
+            # can detect actual changes.
+            state[key] = {
+                **previous,
+                "fingerprint": fingerprint,
+                "last_checked_at": _now_iso(),
+                "error": None,
+            }
             results.append({"key": key, "target": target, "status": "drifted" if drifted else "unchanged", "previous": previous.get("fingerprint"), "current": fingerprint})
         except Exception as exc:
+            state[key] = {**previous, "last_checked_at": _now_iso(), "error": str(exc)}
             results.append({"key": key, "target": target, "status": "error", "error": str(exc), "previous": previous.get("fingerprint")})
+    save_state(config["state_file"], state)
     return results
 
 

@@ -96,6 +96,7 @@ export interface DownloadUrlData {
 export interface SyncJobData {
   id: string;
   target_id: string;
+  resource: string;
   status: string;
   action: string;
   attempts: number;
@@ -186,6 +187,37 @@ export interface SearchData {
   facets: Record<string, Array<{ value: string; count: number }>>;
 }
 
+// -- Remote search (Watch discover) --
+export interface RemoteSearchResult {
+  id: string;
+  source: string;
+  repo_type: string;
+  url: string;
+  author?: string;
+  downloads: number;
+  likes: number;
+  stars: number;
+  forks: number;
+  size_bytes: number;
+  last_modified?: string;
+  created_at?: string;
+  pipeline_tag?: string;
+  library_name?: string;
+  tags: string[];
+  license?: string;
+  description?: string;
+  name?: string;
+  modely_uri?: string;
+}
+
+export interface RemoteSearchData {
+  results: RemoteSearchResult[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 // -- Analytics types --
 export interface RiskTrendsData {
   period: string;
@@ -215,6 +247,11 @@ export interface WatchTarget {
   last_download_path?: string;
   fingerprint?: string;
   error?: string;
+  // Merged drift fields (from list_watch_targets)
+  drift_status?: 'drifted' | 'unchanged' | 'error' | 'idle';
+  drifted?: boolean;
+  previous_fingerprint?: string;
+  current_fingerprint?: string;
 }
 
 export interface WatchTargetListData {

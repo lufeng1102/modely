@@ -281,19 +281,30 @@ def _asset_to_policy_dict(asset) -> dict[str, Any]:
     suitable for ``evaluate_governance_policy``.
 
     Covers Asset dataclass instances, dicts, and generic objects with attributes.
+    Also reads license and tags from nested ``metadata`` when not at top level.
     """
     if hasattr(asset, "to_dict") and not isinstance(asset, dict):
-        return asset.to_dict()
-    if isinstance(asset, dict):
-        return dict(asset)
-    # Fallback: extract attributes
-    result: dict[str, Any] = {}
-    for attr in ("id", "repo_id", "repo_type", "source", "license",
-                  "tags", "files", "size", "file_count", "checksum",
-                  "operational_state", "visibility", "tenant_scope",
-                  "metadata", "scan", "scan_evidence", "approval_state"):
-        if hasattr(asset, attr):
-            result[attr] = getattr(asset, attr)
+        result = dict(asset.to_dict())
+    elif isinstance(asset, dict):
+        result = dict(asset)
+    else:
+        result = {}
+        for attr in ("id", "repo_id", "repo_type", "source", "license",
+                      "tags", "files", "size", "file_count", "checksum",
+                      "operational_state", "visibility", "tenant_scope",
+                      "metadata", "scan", "scan_evidence", "approval_state"):
+            if hasattr(asset, attr):
+                result[attr] = getattr(asset, attr)
+
+    # Enrich from metadata sidecar (license, tags are stored there by catalog_from_cache)
+    meta = result.get("metadata")
+    if isinstance(meta, dict):
+        if not result.get("license"):
+            result["license"] = meta.get("license")
+        if not result.get("tags"):
+            result["tags"] = meta.get("tags") or []
+        if not result.get("files"):
+            result["files"] = meta.get("files") or []
     return result
 
 

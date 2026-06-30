@@ -13,6 +13,7 @@ class SyncJobResponse:
     id: str
     target_id: str
     status: str
+    resource: str = ""
     action: str = "sync"
     attempts: int = 0
     error: str | None = None

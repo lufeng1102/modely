@@ -78,6 +78,7 @@ def create_sync_job(service, *, request_id: str = "req_unknown", sync_worker: An
     job_response = SyncJobResponse(
         id=job_dict.get("id", ""),
         target_id=job_dict.get("target_id", target_id),
+        resource=job_dict.get("resource", resource),
         status=job_dict.get("status", "registered"),
         action=job_dict.get("action", "sync"),
         attempts=job_dict.get("attempts", 0),
@@ -153,6 +154,7 @@ def _job_to_response(job_dict: dict) -> dict:
     return SyncJobResponse(
         id=d.get("id", ""),
         target_id=d.get("target_id", ""),
+        resource=d.get("resource", ""),
         status=d.get("status", "unknown"),
         action=d.get("action", "sync"),
         attempts=d.get("attempts", 0),

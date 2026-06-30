@@ -38,7 +38,8 @@ def _field_val(item, key: str) -> Any:
     if hasattr(item, "to_dict") and not isinstance(item, dict):
         item = item.to_dict()
     identity = item.get("identity", {})
-    return item.get(key) or identity.get(key)
+    meta = item.get("metadata", {}) or {}
+    return item.get(key) or meta.get(key) or identity.get(key)
 
 
 def _set_field(item, key: str, value: Any) -> None:
@@ -96,6 +97,59 @@ def _sync_result_to_cache(job: dict, result: Any) -> None:
             write_repo_info(cache_dir, info.to_dict())
     except Exception:
         pass
+
+    # Update watch fingerprint if a matching watch target exists
+    _update_watch_fingerprint(source, repo_type, repo_id, revision, cache_dir)
+    job.setdefault("metadata", {}).setdefault("watch_updated", True)
+
+
+def _update_watch_fingerprint(
+    source: str, repo_type: str, repo_id: str, revision: str, local_path: str
+) -> None:
+    """Update the last-checked fingerprint for a matching watch target."""
+    import json
+    import hashlib
+    import os
+    from pathlib import Path
+
+    # Look for watch config files
+    watch_dir = Path.home() / ".modely"
+    for cfg_path in watch_dir.glob("*-watch.json"):
+        try:
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+            targets = cfg.get("targets", [])
+            updated = False
+            for t in targets:
+                if (t.get("source") == source and t.get("repo_id") == repo_id
+                        and t.get("repo_type", "model") == repo_type
+                        and t.get("revision", "master") == revision):
+                    # Compute a simple fingerprint from the cached files
+                    if os.path.isdir(local_path):
+                        file_hashes = []
+                        for root, _, files in sorted(os.walk(local_path)):
+                            for fname in sorted(files):
+                                fp = os.path.join(root, fname)
+                                try:
+                                    st = os.stat(fp)
+                                    file_hashes.append(f"{fname}:{st.st_size}:{st.st_mtime}")
+                                except OSError:
+                                    pass
+                        if file_hashes:
+                            fp_hash = hashlib.sha256(
+                                "\n".join(file_hashes).encode()
+                            ).hexdigest()[:16]
+                            t["fingerprint"] = fp_hash
+                            from datetime import datetime, timezone
+                            t["last_checked_at"] = datetime.now(timezone.utc).isoformat()
+                            t["last_downloaded_at"] = t["last_checked_at"]
+                            updated = True
+            if updated:
+                cfg["targets"] = targets
+                with open(cfg_path, "w") as f:
+                    json.dump(cfg, f, indent=2)
+        except Exception:
+            pass
 
 
 def _text_matches_asset(item, query: str) -> bool:
@@ -295,7 +349,6 @@ class DevNullServices:
 
     def list_sync_jobs(self) -> list[Any]:
         return [_Stub(**j) for j in self._jobs.values()]
-        ]
 
     # -- Governance --------------------------------------------------------------
 

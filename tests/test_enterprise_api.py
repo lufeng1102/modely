@@ -458,8 +458,11 @@ def test_app_routes_are_all_wired():
         "/api/v1/reports/governance",
         # Watch / monitoring
         "/api/v1/watch/targets",
+        "/api/v1/watch/targets/add",
+        "/api/v1/watch/targets/remove",
         "/api/v1/watch/check",
         "/api/v1/watch/history",
+        "/api/v1/watch/discover",
         # Service accounts (dev/demo stubs)
         "/api/v1/service-accounts",
         "/api/v1/service-accounts/create",
@@ -480,6 +483,57 @@ def test_app_injects_services(repository):
     app = create_app(catalog_service=svc)
     result = app.call("/api/v1/assets", request_id="req_test")
     assert result["data"]["total"] == 1
+
+
+def test_watch_discover_returns_compact_ui_payload(monkeypatch):
+    from modely.search.types import SearchResult
+
+    long_description = "x" * 10_000
+
+    monkeypatch.setattr(
+        "modely.search.search",
+        lambda **kwargs: [
+            SearchResult(
+                id="org/model",
+                source="hf",
+                repo_type=kwargs["repo_type"],
+                description=long_description,
+                tags=[f"tag-{i}" for i in range(20)],
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "modely.search.gh_search.search_github",
+        lambda **kwargs: [
+            SearchResult(
+                id="owner/tool",
+                source="github",
+                repo_type="tool",
+                author={"Name": "owner-name", "Description": long_description},
+                description=long_description,
+                metadata={"large": long_description},
+            )
+        ],
+    )
+
+    app = create_app()
+    result = app.call(
+        "/api/v1/watch/discover",
+        q="model",
+        repo_type="all",
+        source="all",
+        limit="2",
+        request_id="req_test",
+    )
+
+    results = result["data"]["results"]
+    assert result["data"]["total"] == 2
+    assert len(results) == 2
+    assert all(len(item["description"]) <= 240 for item in results)
+    assert all("metadata" not in item and "summary" not in item for item in results)
+    assert len(results[0]["tags"]) == 12
+    assert isinstance(results[1]["author"], str)
+    assert results[1]["author"] == "owner-name"
 
 
 # -- Auth middleware tests -----------------------------------------------------

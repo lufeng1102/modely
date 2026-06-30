@@ -61,12 +61,14 @@ def list_assets(service, *, request_id: str = "req_unknown", principal=None, **q
         if len(raw) == 1:
             asset = raw[0]
             response = _asset_to_response(asset)
+            asset_dict = asset.to_dict() if hasattr(asset, "to_dict") else dict(asset)
+            scan_evidence, risk_level, policy_status, _ = _evaluate_asset_policy(asset_dict)
             governance = {
                 "visibility": response.visibility,
-                "access_rules": _build_access_rules_summary(asset.to_dict() if hasattr(asset, "to_dict") else dict(asset)),
-                "policy_status": "not_evaluated",
-                "risk_level": "unknown",
-                "approval_state": _extract_approval_state(asset.to_dict() if hasattr(asset, "to_dict") else dict(asset)),
+                "access_rules": _build_access_rules_summary(asset_dict),
+                "policy_status": policy_status,
+                "risk_level": risk_level,
+                "approval_state": _extract_approval_state(asset_dict),
             }
             result = response.to_dict()
             result["governance"] = governance
@@ -630,7 +632,8 @@ def _field(item, key: str):
     if hasattr(item, "to_dict") and not isinstance(item, dict):
         item = item.to_dict()
     identity = item.get("identity", {})
-    return item.get(key) or identity.get(key)
+    meta = item.get("metadata", {}) or {}
+    return item.get(key) or meta.get(key) or identity.get(key)
 
 
 def _text_matches(item, query: str) -> bool:
@@ -782,6 +785,9 @@ def _evaluate_asset_policy(
 
     policy_status = decision.outcome
     risk_level = decision.risk_level
+    # Fall back to simple heuristic when governance engine returns unknown
+    if risk_level == "unknown":
+        risk_level = _derive_risk_level(asset_dict)
     reasons = decision.reasons
 
     return scan_evidence, risk_level, policy_status, reasons

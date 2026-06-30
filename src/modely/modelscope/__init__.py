@@ -532,9 +532,15 @@ class HubApi:
                     })
 
             return repo_files
+        except requests.HTTPError as e:
+            status = getattr(getattr(e, 'response', None), 'status_code', 0) or 0
+            if status == 404:
+                print(f"Warning: Dataset not found: {dataset_id}")
+                return []
+            raise Exception(f"Failed to fetch dataset file list (HTTP {status}): {e}")
         except Exception as e:
             print(f"Warning: Could not fetch dataset file list from API: {e}")
-            return []
+            raise
 
 def _lightweight_model_file_download(
     model_id: str,

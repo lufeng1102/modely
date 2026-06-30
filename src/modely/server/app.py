@@ -68,7 +68,7 @@ from .routes.reproducibility import (
     validate_lockfile,
 )
 from .routes.sync import create_sync_job, get_sync_job, get_sync_job_logs
-from .routes.watch import check_drift, get_watch_history, list_watch_targets
+from .routes.watch import add_watch_target, check_drift, get_watch_history, list_watch_targets, remote_search_route, remove_watch_target
 from .routes.service_accounts import (
     create_service_account,
     create_token_for_sa,
@@ -156,8 +156,11 @@ def create_app(
 
     # -- Watch / monitoring --------------------------------------------------------
     app.route("/api/v1/watch/targets", list_watch_targets)
+    app.route("/api/v1/watch/targets/add", add_watch_target)
+    app.route("/api/v1/watch/targets/remove", remove_watch_target)
     app.route("/api/v1/watch/check", check_drift)
     app.route("/api/v1/watch/history", get_watch_history)
+    app.route("/api/v1/watch/discover", remote_search_route)
 
     # -- Phase 3a lockfile validation ---------------------------------------------
     app.route("/api/v1/lockfiles/validate", validate_lockfile)
@@ -360,7 +363,7 @@ def _register_routes(fastapi_app: Any, modely: ModelyServerApp) -> None:
 
 def _methods_for_path(path: str) -> list[str]:
     """Guess the HTTP method(s) from the route path convention."""
-    if any(verb in path for verb in ("/submit", "/create", "/register", "/set", "/evaluate", "/check")):
+    if any(verb in path for verb in ("/submit", "/create", "/register", "/set", "/evaluate", "/check", "/add", "/remove")):
         return ["POST"]
     if any(verb in path for verb in ("/approve", "/reject", "/cancel", "/revoke")):
         return ["POST"]

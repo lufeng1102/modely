@@ -28,6 +28,21 @@ export default function SyncJobs() {
     }
   }, [jobs])
 
+  const retry = async (j: SyncJobData) => {
+    try {
+      const meta = (j.metadata as Record<string,unknown> | null) || {}
+      const res = meta.resource as string || ''
+      // Extract resource from the job's worker_result if available
+      const wr = meta.worker_result as Record<string,unknown> | null
+      const resUri = (wr?.manifest as Record<string,unknown> | null)?.repo_id
+        ? `ms://models/${(wr?.manifest as Record<string,unknown>).repo_id}`
+        : (meta.resource as string) || `ms://models/qwen/Qwen2.5-0.5B-Instruct`
+      const r = await createSyncJob({ target_id: j.target_id, resource: resUri })
+      setJobs(prev => [r.data, ...prev])
+      setError('')
+    } catch (e: unknown) { setError((e as Error).message) }
+  }
+
   const create = async () => {
     try {
       const r = await createSyncJob({ target_id: targetId || 'target-1', resource })
@@ -84,14 +99,21 @@ export default function SyncJobs() {
       )}
       {!loading && jobs.length > 0 && (
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>{['ID','Target','Status','Attempts','Error'].map(h => <th key={h} style={{textAlign:'left',padding:8,borderBottom:'1px solid #ddd'}}>{h}</th>)}</tr></thead>
+        <thead><tr>{['ID','Target','Resource','Status','Attempts','Error','Actions'].map(h => <th key={h} style={{textAlign:'left',padding:8,borderBottom:'1px solid #ddd'}}>{h}</th>)}</tr></thead>
         <tbody>{jobs.map(j => (
-          <tr key={j.id} style={{ cursor: 'pointer' }} onClick={() => viewLogs(j.id)}>
-            <td style={{padding:8,borderBottom:'1px solid #eee'}}>{j.id}</td>
-            <td style={{padding:8}}>{j.target_id}</td>
-            <td style={{padding:8}}>{j.status}</td>
-            <td style={{padding:8}}>{j.attempts}</td>
-            <td style={{padding:8,color:j.error?'red':'#999'}}>{j.error || '-'}</td>
+          <tr key={j.id}>
+            <td style={{padding:8,borderBottom:'1px solid #eee',cursor:'pointer'}} onClick={() => viewLogs(j.id)}>{j.id}</td>
+            <td style={{padding:8,cursor:'pointer'}} onClick={() => viewLogs(j.id)}>{j.target_id}</td>
+            <td style={{padding:8,cursor:'pointer',fontSize:'0.82rem'}} onClick={() => viewLogs(j.id)}><code>{j.resource || '-'}</code></td>
+            <td style={{padding:8,cursor:'pointer'}} onClick={() => viewLogs(j.id)}>{j.status}</td>
+            <td style={{padding:8,cursor:'pointer'}} onClick={() => viewLogs(j.id)}>{j.attempts}</td>
+            <td style={{padding:8,color:j.error?'red':'#999',cursor:'pointer'}} onClick={() => viewLogs(j.id)}>{j.error ? j.error.slice(0, 80) : '-'}</td>
+            <td style={{padding:8}}>
+              <button onClick={(e) => { e.stopPropagation(); retry(j) }}
+                style={{ padding: '4px 10px', fontSize: '0.75rem', background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                Retry
+              </button>
+            </td>
           </tr>
         ))}</tbody>
       </table>

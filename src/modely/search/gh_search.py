@@ -104,6 +104,7 @@ def search_github(
                 description=item.get("description"),
                 stars=item.get("stargazers_count", 0) or 0,
                 forks=item.get("forks_count", 0) or 0,
+                size_bytes=(item.get("size", 0) or 0) * 1024,  # GitHub size is in KB
                 metadata={"backend": "github-rest", "open_issues": item.get("open_issues_count", 0) or 0},
             )
             output.append(result)

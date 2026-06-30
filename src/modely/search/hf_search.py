@@ -27,7 +27,7 @@ def search_huggingface(
     direction: str = "desc",
     limit: int = 20,
     author: Optional[str] = None,
-    full: bool = False,
+    full: bool = True,  # default True: need author, license tags, last_modified, etc.
 ) -> List[SearchResult]:
     """Search Hugging Face Hub for models or datasets.
 
@@ -57,7 +57,7 @@ def search_huggingface(
             author=author,
             sort=hf_sort,
             limit=limit,
-            full=full,
+            full=True,  # full metadata: author, license, description, last_modified, siblings
         )
 
         for item in items:
@@ -76,6 +76,23 @@ def search_huggingface(
             else:
                 tags = []
 
+            # Extract license from tags (e.g. "license:apache-2.0") — HF list API
+            # does not include a top-level license field even with full=True.
+            license_val = None
+            for t in tags:
+                if t.startswith("license:") or t.startswith("License:"):
+                    license_val = t.split(":", 1)[1].strip()
+                    break
+
+            # Description: try card_data first, then HF list API might expose it
+            # via a nested attribute on some SDK versions.
+            description = None
+            card_data = getattr(item, "card_data", None)
+            if card_data is not None:
+                description = getattr(card_data, "description", None) or getattr(card_data, "summary", None)
+            if not description:
+                description = getattr(item, "description", None)
+
             result = SearchResult(
                 id=getattr(item, "id", ""),
                 source="hf",
@@ -89,8 +106,8 @@ def search_huggingface(
                 pipeline_tag=getattr(item, "pipeline_tag", None),
                 library_name=getattr(item, "library_name", None),
                 tags=tags,
-                license=getattr(item, "license", None),
-                description=getattr(item, "description", None),
+                license=license_val,
+                description=description,
                 size_bytes=_siblings_size(getattr(item, "siblings", None)),
                 metadata={"backend": "huggingface_hub"},
             )

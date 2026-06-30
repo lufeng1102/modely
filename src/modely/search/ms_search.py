@@ -85,6 +85,15 @@ def _parse_model_item(item: Dict) -> SearchResult:
     if likes is None:
         likes = item.get("Stars", 0) or 0
 
+    # Size: prefer StorageSize (bytes), fall back to ModelInfos.*.model_size
+    size_bytes = item.get("StorageSize", 0) or 0
+    if not size_bytes:
+        model_infos = item.get("ModelInfos") or {}
+        for info in model_infos.values():
+            if isinstance(info, dict) and info.get("model_size"):
+                size_bytes = info.get("model_size") or 0
+                break
+
     return SearchResult(
         id=repo_id,
         source="ms",
@@ -101,6 +110,7 @@ def _parse_model_item(item: Dict) -> SearchResult:
         license=item.get("License"),
         description=item.get("Description") or item.get("ChineseName"),
         stars=likes or 0,
+        size_bytes=size_bytes,
         metadata={"backend": "modelscope", "raw_id": item.get("Id")},
     )
 
@@ -130,6 +140,7 @@ def _parse_dataset_item(item: Dict) -> SearchResult:
         license=item.get("license"),
         description=item.get("description") or item.get("display_name"),
         stars=item.get("likes", 0) or 0,
+        size_bytes=item.get("file_size", 0) or 0,
         metadata={"backend": "modelscope"},
     )
 

@@ -38,7 +38,8 @@ import type {
   CIGateData,
   ServiceAccountData, TokenCreateData,
   SearchData, RiskTrendsData, UsageStatsData,
-  WatchTargetListData, DriftCheckData, WatchHistoryData,
+  WatchTargetListData, WatchTarget, DriftCheckData, WatchHistoryData,
+  RemoteSearchData,
   FilePreviewData,
 } from './types';
 
@@ -77,3 +78,6 @@ export async function getUsagePopularity() { return api.get<UsageStatsData>('/ap
 export async function getWatchTargets(config?: string) { return api.get<WatchTargetListData>('/api/v1/watch/targets', config ? { config } : undefined); }
 export async function checkWatchDrift(config?: string) { return api.post<DriftCheckData>('/api/v1/watch/check', { config: config }); }
 export async function getWatchHistory(targetKey?: string) { return api.get<WatchHistoryData>('/api/v1/watch/history', targetKey ? { target_key: targetKey } : undefined); }
+export async function remoteSearch(params: Record<string, string>) { return api.get<RemoteSearchData>('/api/v1/watch/discover', params); }
+export async function addWatchTarget(config: string, target: Record<string, unknown>) { return api.post<WatchTarget>('/api/v1/watch/targets/add', { config, target }); }
+export async function removeWatchTarget(config: string, targetKey: string) { return api.post<{ removed: boolean }>('/api/v1/watch/targets/remove', { config, target_key: targetKey }); }
