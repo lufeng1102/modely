@@ -104,40 +104,44 @@ def snapshot_download(
     Returns:
         Path to the directory containing downloaded files
     """
-    # Check if entire repo is already cached
-    if not force_download:
-        cached_path = hf_cache.get_cached_repo_path(
-            repo_id, repo_type, revision, "hf", cache_dir
-        )
-        if cached_path:
-            print(f"Repository already cached at: {cached_path}")
-            return cached_path
-
     # Determine cache directory
     if cache_dir is None:
         cache_dir = hf_cache.get_cache_dir()
     else:
         cache_dir = hf_cache.get_cache_dir(cache_dir)
 
+    # Use modely's repo cache dir as local_dir so files land in the expected
+    # place.  The HF SDK cache is managed separately by huggingface_hub.
+    local_repo_dir = hf_cache.get_repo_cache_dir(
+        repo_id, repo_type, revision, "hf", cache_dir
+    )
+
+    # Check if already cached
+    if not force_download and not local_dir:
+        if os.path.isdir(local_repo_dir):
+            # Count actual files (not just .cache metadata dir)
+            real_files = [f for f in os.listdir(local_repo_dir) if f != ".cache"]
+            if real_files:
+                print(f"Repository already cached ({len(real_files)} files) at: {local_repo_dir}")
+                return local_repo_dir
+
     # Convert repo_type to huggingface_hub format
     repo_type_map = {"model": "model", "dataset": "dataset", "space": "space"}
     hf_repo_type = repo_type_map.get(repo_type, repo_type)
 
     try:
-        kwargs = dict(
+        repo_path = hf_snapshot_download_sdk(
             repo_id=repo_id,
             repo_type=hf_repo_type,
             revision=revision,
             cache_dir=cache_dir,
-            local_dir=local_dir,
+            local_dir=local_dir or local_repo_dir,
             token=token,
             allow_patterns=allow_patterns,
             ignore_patterns=ignore_patterns,
             force_download=force_download,
+            max_workers=max_workers,
         )
-        if max_workers is not None:
-            kwargs["max_workers"] = max_workers
-        repo_path = hf_snapshot_download_sdk(**kwargs)
         return repo_path
     except (RepositoryNotFoundError, RevisionNotFoundError) as e:
         raise Exception(f"Repository or revision not found: {e}")

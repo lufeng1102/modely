@@ -30,3 +30,38 @@ modely-ai report ./models/gpt2 --format markdown --output gpt2-report.md
 
 # Then register validated artifacts with MLflow in your project workflow.
 ```
+
+## Enterprise Phase 3 Contract
+
+For enterprise deployments, MLflow integration should record modely-ai governance and reproducibility metadata rather than only local files.
+
+Recommended flow:
+
+```text
+modely approved resolve
+  -> download or mount approved snapshot
+  -> train/evaluate
+  -> log MLflow run tags/params/artifacts
+  -> optionally register model with MLflow Model Registry
+```
+
+Metadata to record in MLflow runs or model versions:
+
+- modely asset ID and source URI;
+- immutable approved snapshot ID;
+- resolved channel and resolution timestamp, if a channel was used;
+- manifest digest and lockfile path/artifact;
+- policy decision reference;
+- approval reference;
+- service-account principal or redacted actor metadata;
+- audit/correlation ID.
+
+Failure cases:
+
+- blocked or unapproved asset fails before training starts;
+- manifest/checksum mismatch fails the run setup;
+- insufficient service-account scope fails resolve;
+- expired approval or token fails resolve;
+- offline tests use local fixtures and fake server responses.
+
+MLflow stages/aliases may reference modely snapshot IDs, but modely approved snapshots remain the source of external asset intake evidence.

@@ -308,3 +308,80 @@ class DownloadManifest(_DataclassDictMixin):
     include: Optional[List[str]] = None
     exclude: Optional[List[str]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ResourceSyncTarget(_DataclassDictMixin):
+    """A resource managed by the local sync center."""
+
+    id: str
+    resource: str
+    local_dir: str
+    source: str = "auto"
+    repo_type: str = "auto"
+    revision: Optional[str] = None
+    include: Optional[List[str]] = None
+    exclude: Optional[List[str]] = None
+    profile: Optional[str] = None
+    prefer: str = "default"
+    token_env: Optional[str] = None
+    cache_dir: Optional[str] = None
+    checksum: bool = False
+    force_download: bool = False
+    manifest: Optional[str] = None
+    report: Optional[str] = None
+    enabled: bool = True
+    labels: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ResourceSyncState(_DataclassDictMixin):
+    """Latest state for a sync-center target."""
+
+    target_id: str
+    status: str
+    last_planned_at: Optional[str] = None
+    last_synced_at: Optional[str] = None
+    last_checked_at: Optional[str] = None
+    last_download_path: Optional[str] = None
+    last_manifest_path: Optional[str] = None
+    last_report_path: Optional[str] = None
+    last_fingerprint: Optional[str] = None
+    last_error: Optional[str] = None
+    run_count: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ResourceSyncRun(_DataclassDictMixin):
+    """A sync-center operation record."""
+
+    id: str
+    target_id: str
+    action: str
+    status: str
+    started_at: str
+    finished_at: Optional[str] = None
+    resource: Optional[str] = None
+    local_dir: Optional[str] = None
+    path: Optional[str] = None
+    manifest_path: Optional[str] = None
+    report_path: Optional[str] = None
+    fingerprint_before: Optional[str] = None
+    fingerprint_after: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SyncCenterReport(_DataclassDictMixin):
+    """Aggregate report returned by sync-center operations."""
+
+    targets: List[ResourceSyncTarget] = field(default_factory=list)
+    states: Dict[str, ResourceSyncState] = field(default_factory=dict)
+    runs: List[ResourceSyncRun] = field(default_factory=list)
+    summary: Dict[str, Any] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import modely
-from modely import watch
+from modely.syncing import watch
 
 
 def write_config(path, payload):

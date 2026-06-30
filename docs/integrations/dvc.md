@@ -31,3 +31,33 @@ dvc add data/raw modely.lock
 git add data/raw.dvc modely.lock .gitignore
 git commit -m "Track external dataset"
 ```
+
+## Enterprise Phase 3 Contract
+
+For enterprise deployments, DVC pipelines should consume modely-approved assets through lockfiles and approved resolve/install flows.
+
+Recommended flow:
+
+```text
+modely-ai policy check modely.lock --profile production
+  -> modely-ai asset install --approved --lockfile modely.lock
+  -> dvc stage consumes pinned local artifact paths
+  -> DVC tracks project-level outputs and metrics
+```
+
+Metadata to track:
+
+- `modely.lock` with immutable approved snapshot ID;
+- manifest digest and file checksums;
+- policy decision and approval refs;
+- DVC stage name and dependency path;
+- audit/correlation ID where available.
+
+Failure cases:
+
+- blocked/unapproved asset fails before DVC stage execution;
+- manifest mismatch fails validation;
+- service-account insufficient scope fails approved install;
+- DVC remote is not a substitute for modely internal governed storage unless explicitly configured as an approved storage backend.
+
+Tests should use local fixture assets and fake policy/resolve responses rather than live external services.

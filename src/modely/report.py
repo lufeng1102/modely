@@ -1,71 +1,23 @@
-"""Report rendering helpers."""
+"""Compatibility facade for resource report helpers."""
 
 from __future__ import annotations
 
-import html
-import json
-import os
-
 from .doctor import doctor_resource
+from .reporting.service import create_resource_report as _create_resource_report
 from .scan import scan_path
 from .score import score_path
 
 
 def create_resource_report(resource: str, *, format: str = "markdown", **kwargs) -> str:
     """Create a simple resource report from doctor signals."""
-    report = _local_report(resource) if os.path.exists(resource) and "://" not in resource else doctor_resource(resource, **kwargs)
-    if format == "json":
-        return json.dumps(report, indent=2, ensure_ascii=False)
-    if format == "html":
-        return _html_report(report)
-    if format == "markdown":
-        return _markdown_report(report)
-    raise ValueError(f"Unsupported report format: {format}")
-
-
-def _local_report(path: str) -> dict:
-    score = score_path(path).to_dict()
-    scan = scan_path(path).to_dict()
-    return {
-        "query": path,
-        "recommended": path,
-        "strategy": "local",
-        "resolve": None,
-        "score": score,
-        "scan": scan,
-        "probes": [],
-        "warnings": [],
-        "next_steps": [],
-    }
-
-
-def _markdown_report(report: dict) -> str:
-    lines = [f"# modely report: {report['query']}", ""]
-    lines.append(f"- Recommended: `{report.get('recommended') or '-'}`")
-    score = report.get("score") or {}
-    if score:
-        lines.append(f"- Score: {score.get('score')}/100 ({score.get('grade')})")
-    scan = report.get("scan") or {}
-    if scan:
-        lines.append(f"- Risk: {scan.get('risk_level')}")
-    if report.get("warnings"):
-        lines.extend(["", "## Warnings"])
-        lines.extend(f"- {w}" for w in report["warnings"])
-    return "\n".join(lines) + "\n"
-
-
-def _html_report(report: dict) -> str:
-    title = html.escape(f"modely report: {report['query']}")
-    recommended = html.escape(str(report.get("recommended") or "-"))
-    score = report.get("score") or {}
-    scan = report.get("scan") or {}
-    warning_items = "".join(f"<li>{html.escape(str(w))}</li>" for w in report.get("warnings") or [])
-    return (
-        f"<!doctype html><html><head><meta charset='utf-8'><title>{title}</title></head><body>"
-        f"<h1>{title}</h1>"
-        f"<p><strong>Recommended:</strong> <code>{recommended}</code></p>"
-        f"<p><strong>Score:</strong> {html.escape(str(score.get('score', '-')))} / 100 ({html.escape(str(score.get('grade', '-')))} )</p>"
-        f"<p><strong>Risk:</strong> {html.escape(str(scan.get('risk_level', '-')))}</p>"
-        f"<h2>Warnings</h2><ul>{warning_items}</ul>"
-        "</body></html>\n"
+    return _create_resource_report(
+        resource,
+        format=format,
+        doctor_func=doctor_resource,
+        scan_path_func=scan_path,
+        score_path_func=score_path,
+        **kwargs,
     )
+
+
+__all__ = ["create_resource_report", "doctor_resource", "scan_path", "score_path"]

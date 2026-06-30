@@ -209,3 +209,6 @@ __marimo__/
 # Claude Code local files
 .claude/settings.local.json
 .claude/worktrees/
+
+# Project planning & task artifacts (not part of the package)
+tasks/

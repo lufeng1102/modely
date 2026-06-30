@@ -47,7 +47,7 @@ def test_create_batch_download_plan_filters_and_limits(monkeypatch):
             SearchResult(id="org/skip", source="hf", repo_type="model", tags=["text-generation"]),
         ]
 
-    monkeypatch.setattr("modely.batch.search", fake_search)
+    monkeypatch.setattr("modely.application.batch.search", fake_search)
 
     plan = create_batch_download_plan("qwen", source="hf", repo_type="model", tags=["text-generation", "transformers"], limit=1, search_limit=10)
 
@@ -68,7 +68,7 @@ def test_create_batch_download_plan_rejects_empty_filters():
 
 def test_create_batch_download_plan_allows_task_without_tags(monkeypatch):
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])],
     )
 
@@ -79,7 +79,7 @@ def test_create_batch_download_plan_allows_task_without_tags(monkeypatch):
 
 def test_create_batch_download_plan_allows_keyword_without_tags(monkeypatch):
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])],
     )
 
@@ -90,7 +90,7 @@ def test_create_batch_download_plan_allows_keyword_without_tags(monkeypatch):
 
 def test_create_batch_download_plan_filters_repo_type_from_all_sources(monkeypatch):
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [
             SearchResult(id="org/model", source="hf", repo_type="model", tags=[]),
             SearchResult(id="owner/tool", source="github", repo_type="tool", tags=[]),
@@ -115,7 +115,7 @@ def test_run_batch_download_calls_download_resource(monkeypatch):
         calls.append({"resource": resource, **kwargs})
         return f"/tmp/{resource.rsplit('/', 1)[-1]}"
 
-    monkeypatch.setattr("modely.batch.download_resource", fake_download)
+    monkeypatch.setattr("modely.application.batch.download_resource", fake_download)
 
     result = run_batch_download(plan, local_dir="./models", profile="minimal", include=["*.json"], exclude=["*.bin"], prefer="hf,ms", fallback=True, retries=2, timeout=5, checksum=True, resume=False)
 
@@ -137,7 +137,7 @@ def test_run_batch_download_reports_failures(monkeypatch):
             raise RuntimeError("boom")
         return "/tmp/good"
 
-    monkeypatch.setattr("modely.batch.download_resource", fake_download)
+    monkeypatch.setattr("modely.application.batch.download_resource", fake_download)
 
     result = run_batch_download(plan)
 
@@ -147,7 +147,7 @@ def test_run_batch_download_reports_failures(monkeypatch):
 
 
 def test_batch_download_plan_json_serializable(monkeypatch):
-    monkeypatch.setattr("modely.batch.search", lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["tag"])] )
+    monkeypatch.setattr("modely.application.batch.search", lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["tag"])] )
 
     plan = create_batch_download_plan(None, tags=["tag"])
 
@@ -179,7 +179,7 @@ def test_print_batch_download_dry_run_is_readable(capsys):
 def test_batch_download_cli_dry_run(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["modely", "batch-download", "qwen", "--tag", "tag", "--json"])
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["tag"])],
     )
 
@@ -193,7 +193,7 @@ def test_batch_download_cli_dry_run(monkeypatch, capsys):
 def test_batch_download_cli_accepts_task_without_tag(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["modely", "batch-download", "--task", "text-generation", "--repo-type", "model", "--json"])
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])],
     )
 
@@ -206,10 +206,10 @@ def test_batch_download_cli_accepts_task_without_tag(monkeypatch, capsys):
 def test_batch_download_cli_yes_exits_nonzero_on_failure(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["modely", "batch-download", "qwen", "--tag", "tag", "--yes"])
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["tag"])],
     )
-    monkeypatch.setattr("modely.batch.download_resource", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr("modely.application.batch.download_resource", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
 
     with pytest.raises(SystemExit) as exc:
         modely.main()
@@ -225,7 +225,7 @@ def test_create_batch_download_plan_forwards_all_search_filters(monkeypatch):
         captured.update(kwargs)
         return [SearchResult(id="org/model", source="hf", repo_type="model", tags=[])]
 
-    monkeypatch.setattr("modely.batch.search", fake_search)
+    monkeypatch.setattr("modely.application.batch.search", fake_search)
 
     create_batch_download_plan(
         "qwen",
@@ -264,7 +264,7 @@ def test_create_batch_download_plan_forwards_all_search_filters(monkeypatch):
 
 def test_create_batch_download_plan_normalizes_tags(monkeypatch):
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["A", "b"])],
     )
 
@@ -275,7 +275,7 @@ def test_create_batch_download_plan_normalizes_tags(monkeypatch):
 
 
 def test_create_batch_download_plan_rejects_non_positive_limits(monkeypatch):
-    monkeypatch.setattr("modely.batch.search", lambda **kwargs: [])
+    monkeypatch.setattr("modely.application.batch.search", lambda **kwargs: [])
 
     with pytest.raises(ValueError, match="limit must be positive"):
         create_batch_download_plan("qwen", tags=[], limit=0)
@@ -349,7 +349,7 @@ def test_run_batch_download_fail_fast_stops_after_first_failure(monkeypatch):
             raise RuntimeError("boom")
         return "/tmp/good"
 
-    monkeypatch.setattr("modely.batch.download_resource", fake_download)
+    monkeypatch.setattr("modely.application.batch.download_resource", fake_download)
 
     result = run_batch_download(plan, fail_fast=True)
 
@@ -365,7 +365,7 @@ def test_run_batch_download_forwards_all_download_options(monkeypatch):
         captured.update(kwargs)
         return "/tmp/model"
 
-    monkeypatch.setattr("modely.batch.download_resource", fake_download)
+    monkeypatch.setattr("modely.application.batch.download_resource", fake_download)
 
     result = run_batch_download(
         {"downloads": [{"resource": "hf://models/org/model"}]},
@@ -427,10 +427,10 @@ def test_batch_download_cli_rejects_empty_filters(capsys, monkeypatch):
 def test_batch_download_cli_yes_json_success(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["modely", "batch-download", "qwen", "--tag", "tag", "--yes", "--json"])
     monkeypatch.setattr(
-        "modely.batch.search",
+        "modely.application.batch.search",
         lambda **kwargs: [SearchResult(id="org/model", source="hf", repo_type="model", tags=["tag"])],
     )
-    monkeypatch.setattr("modely.batch.download_resource", lambda *a, **k: "/tmp/model")
+    monkeypatch.setattr("modely.application.batch.download_resource", lambda *a, **k: "/tmp/model")
 
     modely.main()
 

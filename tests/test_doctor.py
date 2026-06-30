@@ -19,9 +19,9 @@ class FakeResolve:
 
 
 def test_doctor_resource_uses_top_resolve_candidate(monkeypatch):
-    monkeypatch.setattr("modely.doctor.resolve_resource", lambda *a, **k: FakeResolve())
-    monkeypatch.setattr("modely.doctor.score_resource", lambda *a, **k: AssetScore("r", 90, "A", ScoreBreakdown()))
-    monkeypatch.setattr("modely.doctor.scan_resource", lambda *a, **k: ScanResult("r", "low", analysis=AssetAnalysis(RepoInfo("hf", "model", "org/model"), FileSummary())))
+    monkeypatch.setattr("modely.intelligence.doctor.resolve_resource", lambda *a, **k: FakeResolve())
+    monkeypatch.setattr("modely.intelligence.doctor.score_resource", lambda *a, **k: AssetScore("r", 90, "A", ScoreBreakdown()))
+    monkeypatch.setattr("modely.intelligence.doctor.scan_resource", lambda *a, **k: ScanResult("r", "low", analysis=AssetAnalysis(RepoInfo("hf", "model", "org/model"), FileSummary())))
 
     result = doctor_resource("model")
 

@@ -15,7 +15,7 @@ def test_get_resource_detail_reuses_one_analysis(monkeypatch):
         calls.append((args, kwargs))
         return analysis
 
-    monkeypatch.setattr("modely.detail.analyze_resource", fake_analyze)
+    monkeypatch.setattr("modely.application.detail.analyze_resource", fake_analyze)
 
     detail = get_resource_detail("org/model", source="hf", repo_type="model")
 

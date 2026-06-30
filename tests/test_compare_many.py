@@ -13,7 +13,7 @@ def test_compare_many_resources_summarizes_details(monkeypatch):
             "warnings": [],
         }
 
-    monkeypatch.setattr("modely.compare_many.get_resource_detail", fake_detail)
+    monkeypatch.setattr("modely.intelligence.compare_many.get_resource_detail", fake_detail)
 
     result = compare_many_resources(["org/a", "org/b"], source="hf")
 

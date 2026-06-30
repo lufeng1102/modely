@@ -21,6 +21,17 @@ Use git and GitHub CLI for source-control collaboration:
 
 Use modely-ai to treat GitHub repositories as assets in the same discovery, scan, lock, and catalog workflow as models and datasets. Use git/GitHub CLI for collaboration and repository lifecycle operations.
 
+## Enterprise CI gate target
+
+For enterprise Phase 3, GitHub Actions can run the planned `modely-ai policy check` command against lockfiles, manifests, or catalog reports. The command must use scoped service-account/API tokens, stable exit codes, and JSON/SARIF-compatible output as defined in `docs/specs/enterprise-cli.md`.
+
+This target example should be validated against the implemented CLI before production use:
+
+```yaml
+- name: modely policy gate
+  run: modely-ai policy check modely.lock --profile production --format sarif
+```
+
 ## Examples
 
 ```bash

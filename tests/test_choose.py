@@ -28,9 +28,9 @@ class FakeResolve:
 
 
 def test_choose_resource_ranks_candidates(monkeypatch):
-    monkeypatch.setattr("modely.decision.resolve_resource", lambda *a, **k: FakeResolve())
-    monkeypatch.setattr("modely.decision.score_resource", lambda uri, **k: AssetScore(uri, 80 if uri.startswith("hf") else 95, "A", ScoreBreakdown()))
-    monkeypatch.setattr("modely.decision.scan_resource", lambda uri, **k: ScanResult(uri, "low", analysis=AssetAnalysis(RepoInfo("hf", "model", "org/a"), FileSummary())))
+    monkeypatch.setattr("modely.intelligence.decision.resolve_resource", lambda *a, **k: FakeResolve())
+    monkeypatch.setattr("modely.intelligence.decision.score_resource", lambda uri, **k: AssetScore(uri, 80 if uri.startswith("hf") else 95, "A", ScoreBreakdown()))
+    monkeypatch.setattr("modely.intelligence.decision.scan_resource", lambda uri, **k: ScanResult(uri, "low", analysis=AssetAnalysis(RepoInfo("hf", "model", "org/a"), FileSummary())))
 
     result = choose_resource("a")
 

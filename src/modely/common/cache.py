@@ -348,3 +348,35 @@ def _sha256(path: str) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+# -- Repo metadata sidecar (modely-info.json) --------------------------------
+
+_INFO_FILENAME = "modely-info.json"
+
+
+def write_repo_info(repo_cache_dir: str, info: dict) -> None:
+    """Persist repository metadata as a ``modely-info.json`` sidecar file.
+
+    *info* should be a JSON-serialisable dict (e.g. the output of
+    ``RepoInfo.to_dict()``).
+    """
+    path = os.path.join(repo_cache_dir, _INFO_FILENAME)
+    os.makedirs(repo_cache_dir, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(info, f, indent=2, ensure_ascii=False)
+
+
+def read_repo_info(repo_cache_dir: str) -> Optional[dict]:
+    """Read repository metadata from a ``modely-info.json`` sidecar file.
+
+    Returns ``None`` when the file does not exist or cannot be parsed.
+    """
+    path = os.path.join(repo_cache_dir, _INFO_FILENAME)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None

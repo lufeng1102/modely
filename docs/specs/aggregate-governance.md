@@ -1,5 +1,16 @@
 # Spec: modely-ai Aggregate Governance Commands
 
+## Positioning
+
+This document describes the existing and compatibility-oriented aggregate governance CLI for modely-ai: source diagnostics, selection, mirror verification, local lock/install, catalog gate, cache dedupe, reports, benchmarking, and drift checks. It is not the sole enterprise platform CLI authority. The target enterprise command map, aliases, exit codes, and Phase 1-4 command ownership live in `docs/specs/enterprise-cli.md`.
+
+Compatibility rules:
+
+- Existing commands in this file should keep working unless a later migration explicitly deprecates them.
+- `modely-ai catalog gate` remains a compatibility CI gate for catalog/report inputs; enterprise documentation should prefer `modely-ai policy check` for policy, lockfile, and approved-asset gates.
+- `modely-ai lock RESOURCE ...` and `modely-ai install -f modely.lock` remain local/aggregate lockfile flows; enterprise approved resolution/install is additive.
+- HTML reports in this spec are local/compatibility report output. Enterprise Phase 2 baseline reports are JSON/Markdown/CSV; Phase 4 may add HTML compliance reports when a concrete schema/workflow is selected.
+
 ## Objective
 
 modely-ai is a cross-platform AI model asset manager rather than a single-source downloader. This feature set promotes modely-ai into an AI asset governance CLI for discovering, diagnosing, selecting, verifying, reporting, and governing model assets across Hugging Face, ModelScope, GitHub, and Kaggle.

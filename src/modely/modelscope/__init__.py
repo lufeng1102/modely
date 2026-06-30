@@ -1083,22 +1083,163 @@ def get_repo_info(
     revision: Optional[str] = None,
     token: Optional[str] = None,
 ) -> RepoInfo:
-    """Return best-effort ModelScope repository metadata."""
+    """Return best-effort ModelScope repository metadata.
+
+    Enriches metadata from the ModelScope model/dataset detail API where
+    available, falling back to file-listing-only data when the detail API
+    is unreachable.
+    """
     endpoint = get_endpoint()
     api = HubApi(token=token)
-    files = []
+    files: list = []
     try:
         files = list_files(repo_id, repo_type=repo_type, revision=revision, token=token)
     except Exception:
         files = []
+
+    # Defaults (used when the detail API is unreachable)
+    license_val: Optional[str] = None
+    tags: list[str] = []
+    description: Optional[str] = None
+    author: Optional[str] = None
+    downloads: int = 0
+    likes: int = 0
+    created_at: Optional[str] = None
+    last_modified: Optional[str] = None
+    private: Optional[bool] = None
+
+    # -- enrich from the ModelScope detail API --------------------------------
+    try:
+        _ms_detail = _fetch_model_detail(repo_id, repo_type, endpoint, token)
+        if _ms_detail:
+            license_val = _ms_detail.get("License") or None
+
+            # Collect tags from multiple sources: Tags, Tasks, Libraries,
+            # Language, and ModelType fields.
+            _collected: set[str] = set()
+
+            # 1. Explicit Tags
+            raw_tags = _ms_detail.get("Tags")
+            if isinstance(raw_tags, list):
+                for t in raw_tags:
+                    if isinstance(t, str) and t.strip():
+                        _collected.add(t.strip())
+
+            # 2. Pipeline tasks (e.g. "text-generation", "文本生成")
+            raw_tasks = _ms_detail.get("Tasks")
+            if isinstance(raw_tasks, list):
+                for t in raw_tasks:
+                    if isinstance(t, dict):
+                        for k in ("Name", "ChineseName", "DomainName"):
+                            v = t.get(k)
+                            if isinstance(v, str) and v.strip():
+                                _collected.add(v.strip())
+
+            # 3. Libraries / frameworks (e.g. "Transformers", "Safetensors")
+            raw_libs = _ms_detail.get("Libraries")
+            if isinstance(raw_libs, list):
+                for lib in raw_libs:
+                    if isinstance(lib, dict):
+                        n = lib.get("Name")
+                        if isinstance(n, str) and n.strip():
+                            _collected.add(n.strip())
+                    elif isinstance(lib, str) and lib.strip():
+                        _collected.add(lib.strip())
+
+            # 4. Languages
+            raw_langs = _ms_detail.get("Language")
+            if isinstance(raw_langs, list):
+                for lang in raw_langs:
+                    if isinstance(lang, str) and lang.strip():
+                        _collected.add(lang.strip())
+
+            # 5. Model type (e.g. "qwen2")
+            raw_mt = _ms_detail.get("ModelType")
+            if isinstance(raw_mt, list):
+                for mt in raw_mt:
+                    if isinstance(mt, str) and mt.strip():
+                        _collected.add(mt.strip())
+
+            # 6. Frameworks (alternative key)
+            raw_fw = _ms_detail.get("Frameworks")
+            if isinstance(raw_fw, list):
+                for fw in raw_fw:
+                    if isinstance(fw, str) and fw.strip():
+                        _collected.add(fw.strip())
+
+            tags = sorted(_collected) if _collected else []
+
+            description = _ms_detail.get("Description") or _ms_detail.get("ChineseName") or None
+            # Author: prefer Organization.FullName, fall back to Path
+            org = _ms_detail.get("Organization")
+            if isinstance(org, dict):
+                author = org.get("FullName") or org.get("Name") or _ms_detail.get("Path")
+            else:
+                author = _ms_detail.get("Path")
+            downloads = _ms_detail.get("Downloads") or 0
+            likes = _ms_detail.get("Stars") or _ms_detail.get("Likes") or 0
+            ct = _ms_detail.get("CreatedTime")
+            if ct:
+                from datetime import datetime as _dt, timezone as _tz
+                created_at = _dt.fromtimestamp(int(ct), tz=_tz.utc).isoformat()
+            lut = _ms_detail.get("LastUpdatedTime")
+            if lut:
+                from datetime import datetime as _dt, timezone as _tz
+                last_modified = _dt.fromtimestamp(int(lut), tz=_tz.utc).isoformat()
+            is_pub = _ms_detail.get("IsPublished")
+            if is_pub is not None:
+                private = not bool(is_pub)
+    except Exception:
+        pass
+
+    url = f"{endpoint.rstrip('/')}/{'datasets' if repo_type == REPO_TYPE_DATASET else 'models'}/{repo_id}"
+    revision_val = api.get_valid_revision(repo_id, revision=revision, repo_type=repo_type)
+
     return RepoInfo(
         source="ms",
         repo_type=repo_type,
         repo_id=repo_id,
-        url=f"{endpoint.rstrip('/')}/{'datasets' if repo_type == REPO_TYPE_DATASET else 'models'}/{repo_id}",
-        revision=api.get_valid_revision(repo_id, revision=revision, repo_type=repo_type),
+        url=url,
+        author=author,
+        revision=revision_val,
+        private=private,
+        downloads=downloads,
+        likes=likes,
+        created_at=created_at,
+        last_modified=last_modified,
+        description=description,
+        license=license_val,
+        tags=tags,
         metadata={"file_count": len(files)},
     )
+
+
+def _fetch_model_detail(
+    repo_id: str,
+    repo_type: str,
+    endpoint: str,
+    token: Optional[str] = None,
+) -> Optional[dict]:
+    """Fetch model/dataset detail from the ModelScope API.
+
+    Returns the ``Data`` dict on success, or ``None`` on any failure.
+    """
+    import requests as _requests
+
+    type_seg = "datasets" if repo_type == REPO_TYPE_DATASET else "models"
+    url = f"{endpoint.rstrip('/')}/api/v1/{type_seg}/{repo_id}"
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        resp = _requests.get(url, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            body = resp.json()
+            if body.get("Code") == 200 and "Data" in body:
+                return body["Data"]
+    except Exception:
+        pass
+    return None
 
 
 def main():

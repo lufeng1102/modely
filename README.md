@@ -97,6 +97,10 @@ Future governance improvements should continue strengthening:
 - 💾 **Smart caching**: Avoid duplicate downloads with unified cache system and dry-run duplicate blob reporting
 - 🗂️ **Local asset catalog**: Inventory local directories or modely cache entries with optional score/scan enrichment, snapshots, diffs, exports, and policy gates
 - 🗂️ **Cache management**: CLI commands to view, list, clean, configure, and inspect duplicate cache files
+- 🏢 **Enterprise platform**: Built-in REST API server (47+ endpoints), governance (RBAC, approvals, policy engine, audit, quotas), reproducibility (lockfiles, manifest diff, approved snapshots, CI gates), integrations (MLflow, DVC, CI/CD), and intelligence (search, recommendations, analytics, compliance reports)
+- 🔑 **Enterprise auth**: Service accounts, API tokens with scoped permissions, multi-tenant isolation, and dev/basic auth modes
+- 🌐 **Web UI**: React SPA dashboard for asset browsing, sync management, CI gate evaluation, and analytics (served from `modely-server`)
+- 🖥️ **Enterprise CLI**: `snapshot`, `manifest-diff`, `resolve-approved`, `install-approved`, `token-create/rotate/revoke`, `recommend`, `alternatives`, `graph`, `catalog-gate` commands
 
 ## Installation
 
@@ -110,7 +114,9 @@ pip install modely-ai
 
 ### Command Line Interface
 
-modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`, `batch-download`), querying and evaluating (`info`, `files`, `card`, `analyze`, `score`, `scan`, `compare`, `resolve`), inspecting backend support (`capabilities`), searching (`search`), reproducibility and inventory (`lock`, `install`, `validate-lock`, `catalog`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Plain Hugging Face and ModelScope repository IDs default to `--repo-type auto`, so query commands can try model and dataset metadata before asking you to disambiguate. Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
+modely-ai provides a command-line interface with subcommands for downloading (`hf`, `ms`, `github`, `get`, `batch-download`), querying and evaluating (`info`, `files`, `card`, `analyze`, `score`, `scan`, `compare`, `resolve`), inspecting backend support (`capabilities`), searching (`search`), reproducibility and inventory (`lock`, `install`, `validate-lock`, `catalog`, `sync-center`, `sync`, `mirror`), authentication (`login`, `logout`, `whoami`), source probing (`sources`), monitoring (`watch`), and cache management (`cache`). Plain Hugging Face and ModelScope repository IDs default to `--repo-type auto`, so query commands can try model and dataset metadata before asking you to disambiguate. Experimental Kaggle support is available through unified URIs and search/source helpers where a Kaggle environment is configured.
+
+**Enterprise commands** (requires `modely-server`): see the **Enterprise Platform** section below for full details on CLI, SDK, server, web dashboard, worker, and multi-tenant isolation.
 
 ### Aggregation Workflows
 
@@ -152,6 +158,163 @@ modely-ai benchmark qwen2.5-7b --source hf,ms --json
 modely-ai cache dedupe --dry-run --json
 modely-ai cache serve --open
 ```
+
+### Enterprise Platform
+
+modely-ai includes a full enterprise AI asset platform with server APIs, CLI commands, web dashboard, worker queues, and Python SDK. See [`docs/enterprise-platform-roadmap.html`](docs/enterprise-platform-roadmap.html) for the overall architecture.
+
+#### Enterprise Server (modely-server)
+
+Start the API server with 57+ REST endpoints across 4 capability phases:
+
+```bash
+pip install modely-ai[server]
+modely-server --host 0.0.0.0 --port 8000
+```
+
+**Phase 1 — Internal Mirror & Catalog:** `/api/v1/assets` (list/detail/files), `/api/v1/sync-jobs` (create/status/logs), `/api/v1/health`, `/api/v1/version`
+
+**Phase 2 — Governance:** `/api/v1/governance/policy/evaluate`, `/api/v1/governance/requests` (submit/approve/reject/cancel), `/api/v1/admin/quotas`, `/api/v1/admin/credentials`, `/api/v1/admin/audit`
+
+**Phase 3 — Reproducibility & Integrations:** `/api/v1/lockfiles/validate`, `/api/v1/manifests/diff`, `/api/v1/snapshots` (create/promote/rollback/history), `/api/v1/ci-gates/evaluate`, `/api/v1/service-accounts`, `/api/v1/api-tokens` (create/rotate/revoke), `/api/v1/assets/{id}/resolve-approved`, `/api/v1/platform-usage-events`
+
+**Phase 4 — Intelligent Governance:** `/api/v1/search`, `/api/v1/analytics/risk|usage|lifecycle|cost`, `/api/v1/assets/{id}/recommendations|alternatives|admission-score`, `/api/v1/graph/assets/{id}`, `/api/v1/reports/compliance`
+
+#### Enterprise Python SDK
+
+```python
+from modely.application.client import Client
+
+client = Client(base_url="http://localhost:8000", token="mod-xxx")
+
+# Catalog & search
+assets = client.assets.list(source="hf", page=1)
+asset = client.assets.get("hf:model:org--model")
+
+# Reproducibility
+client.lockfiles.validate("modely.lock", profile="production")
+client.assets.resolve_approved("hf:model:org--model", channel="production")
+
+# Credential management
+sa = client.service_accounts.create("ci-bot", roles=["Developer"])
+token = client.tokens.create(sa["id"], scopes=["asset:read", "asset:download"])
+client.tokens.rotate(token["id"])
+client.tokens.revoke(token["id"])
+
+# Intelligence
+results = client.search("nlp", source="hf")
+trends = client.get_risk_trends()
+usage = client.get_usage_popularity()
+```
+
+#### Enterprise CLI Commands
+
+```bash
+# Catalog & governance
+modely-ai asset search --server http://localhost:8000
+modely-ai recommend hf:model:org--model --server http://localhost:8000
+modely-ai alternatives hf:model:org--model --server http://localhost:8000
+
+# Reproducibility & snapshots
+modely-ai snapshot list --server http://localhost:8000
+modely-ai snapshot promote snap_xxx --channel production --server http://localhost:8000
+modely-ai manifest-diff left.lock right.lock
+modely-ai catalog-gate catalog.json --profile production
+
+# Credential lifecycle
+modely-ai token-create --service-account-id sa_xxx --scopes "asset:read" --server http://localhost:8000
+modely-ai token-rotate tok_xxx --server http://localhost:8000
+modely-ai token-revoke tok_xxx --server http://localhost:8000
+```
+
+#### Web Dashboard (modely-web)
+
+A React SPA dashboard is included at `src/modely/server/web/`:
+
+```bash
+cd src/modely/server/web
+npm install && npm run dev    # Vite dev server :5173 → proxy /api → :8000
+```
+
+Pages: Asset List/Search, Asset Detail, Sync Jobs, Snapshots, CI Gate, Token Management, Enterprise Search, Analytics Dashboard.
+
+#### Enterprise Worker (modely-worker)
+
+Background task execution with in-process (MVP) and future RQ/Celery backends:
+
+```python
+from modely.application.worker_queue import InProcessTaskQueue, enqueue_sync_job
+from modely.syncing.workers import LocalMirrorWorker
+
+queue = InProcessTaskQueue()
+task_id = enqueue_sync_job(job, queue=queue, worker=worker)
+result = queue.get_result(task_id)
+```
+
+#### Multi-Tenant Isolation
+
+```python
+from modely.governance.tenant_isolation import TenantContext, TenantFilteredRepository
+from modely.domain.tenants import TenantScope
+
+ctx = TenantContext(tenant_scope=TenantScope(organization_id="org-1", workspace_id="ws-1"))
+filtered_repo = TenantFilteredRepository(repository, ctx)
+# All operations now scoped to org-1/ws-1
+```
+
+#### Governance & Approval Workflow
+
+```python
+from modely.application.governance_service import GovernanceService
+
+svc = GovernanceService()
+req = svc.submit_approval({"asset_id": "asset_1", "requester": "user_1"})
+svc.approve(req.id, reviewer="admin", reason="OK")
+# Full lifecycle: submit → pending → approved/rejected/cancelled
+
+# Quota enforcement
+svc.set_quota({"subject": "org1", "dimension": "downloads", "limit": 100, "mode": "hard"})
+svc.check_quota("org1", "downloads")  # {"allowed": True, ...}
+```
+
+### Resource Sync Center
+
+`sync-center` is a local control plane for resources your team wants to keep synchronized. It stores registry state under `~/.modely/sync-center/`, records run history in JSONL, and reuses the existing plan/download/catalog/watch primitives. It does **not** replace direct one-shot `sync` or `mirror`.
+
+```bash
+# Register a managed resource. Token values are not stored; use an env var name.
+modely-ai sync-center add hf://models/Qwen/Qwen2.5-7B-Instruct \
+  --id qwen-7b \
+  --local-dir ./vendor/models/qwen \
+  --revision main \
+  --include "*.json" "*.safetensors" \
+  --profile inference \
+  --checksum \
+  --token-env HF_TOKEN \
+  --label llm
+
+# Inspect registry state and run history.
+modely-ai sync-center list
+modely-ai sync-center show qwen-7b --json
+modely-ai sync-center runs --target qwen-7b --limit 20
+
+# Preview and execute managed syncs.
+modely-ai sync-center plan qwen-7b
+modely-ai sync-center plan --all --json
+modely-ai sync-center run qwen-7b
+modely-ai sync-center run --all --checksum
+
+# Check remote drift without downloading. MVP drift checks support HF and ModelScope;
+# unsupported sources return a warning/status instead of pretending they were checked.
+modely-ai sync-center check qwen-7b
+modely-ai sync-center check --all --json
+
+# Build inventory from registered local directories.
+modely-ai sync-center catalog --snapshot
+modely-ai sync-center catalog --output sync-center-catalog.json --json
+```
+
+`sync-center remove TARGET_ID` removes only the local registry/state entry; it does not delete downloaded files.
 
 #### Download from Hugging Face
 

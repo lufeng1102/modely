@@ -11,7 +11,7 @@ def test_resolve_groups_exact_cross_source_matches(monkeypatch):
         SearchResult("org/Qwen2.5_7B", "hf", "model", downloads=100, author="org", pipeline_tag="text-generation", license="apache-2.0"),
         SearchResult("owner/qwen2.5-7b", "ms", "model", downloads=50, author="owner", pipeline_tag="text-generation", license="apache-2.0"),
     ]
-    monkeypatch.setattr("modely.resolve.search", lambda *a, **k: results)
+    monkeypatch.setattr("modely.intelligence.resolve.search", lambda *a, **k: results)
 
     resolved = resolve_resource("qwen2.5-7b", threshold=0.1)
 
@@ -27,7 +27,7 @@ def test_resolve_threshold_filters_weak_matches(monkeypatch):
         SearchResult("org/Qwen2.5-7B", "hf", "model"),
         SearchResult("org/bert-base", "hf", "model"),
     ]
-    monkeypatch.setattr("modely.resolve.search", lambda *a, **k: results)
+    monkeypatch.setattr("modely.intelligence.resolve.search", lambda *a, **k: results)
 
     resolved = resolve_resource("qwen2.5-7b", threshold=0.35)
 
@@ -36,7 +36,7 @@ def test_resolve_threshold_filters_weak_matches(monkeypatch):
 
 def test_resolve_json_serialization_contains_candidate_schema(monkeypatch):
     results = [SearchResult("org/model", "hf", "model", downloads=1)]
-    monkeypatch.setattr("modely.resolve.search", lambda *a, **k: results)
+    monkeypatch.setattr("modely.intelligence.resolve.search", lambda *a, **k: results)
 
     data = resolve_resource("model", threshold=0.1).to_dict()
 
@@ -54,7 +54,7 @@ def test_resolve_json_serialization_contains_candidate_schema(monkeypatch):
 
 def test_resolve_table_includes_fields(monkeypatch):
     results = [SearchResult("org/model", "hf", "model", downloads=1)]
-    monkeypatch.setattr("modely.resolve.search", lambda *a, **k: results)
+    monkeypatch.setattr("modely.intelligence.resolve.search", lambda *a, **k: results)
 
     output = format_resolve_table(resolve_resource("model", threshold=0.1))
 
@@ -95,7 +95,7 @@ def test_resolve_uri_query_uses_repo_name(monkeypatch):
         captured["keyword"] = keyword
         return [SearchResult("Qwen/Qwen2.5-7B-Instruct", "hf", "model")]
 
-    monkeypatch.setattr("modely.resolve.search", fake_search)
+    monkeypatch.setattr("modely.intelligence.resolve.search", fake_search)
 
     resolve_resource("hf://models/Qwen/Qwen2.5-7B-Instruct", threshold=0.1)
 
@@ -113,7 +113,7 @@ def test_resolve_accepts_auto_repo_type(monkeypatch):
         captured.update(kwargs)
         return results
 
-    monkeypatch.setattr("modely.resolve.search", fake_search)
+    monkeypatch.setattr("modely.intelligence.resolve.search", fake_search)
 
     resolved = resolve_resource("org", repo_type="auto", threshold=0.1)
 
@@ -125,7 +125,7 @@ def test_resolve_json_output_is_valid(monkeypatch, capsys):
     from modely.resolve import print_resolve_result
 
     results = [SearchResult("org/model", "hf", "model")]
-    monkeypatch.setattr("modely.resolve.search", lambda *a, **k: results)
+    monkeypatch.setattr("modely.intelligence.resolve.search", lambda *a, **k: results)
 
     print_resolve_result(resolve_resource("model", threshold=0.1), as_json=True)
     parsed = json.loads(capsys.readouterr().out)

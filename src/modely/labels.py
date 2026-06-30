@@ -1,156 +1,42 @@
-"""Local user metadata for modely resources."""
+"""Compatibility facade for local asset labels."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Optional
-
-from .audit import record_audit_event
-from .common import cache
-from .types import RepoRef
-from .uri import parse_modely_uri
-
-METADATA_FILE = "asset_metadata.json"
-_ALLOWED_STATUSES = {"candidate", "evaluating", "approved", "production", "deprecated"}
-
-
-def metadata_path() -> Path:
-    """Return the local resource metadata file path."""
-    return Path(cache.CONFIG_DIR) / METADATA_FILE
+from .cataloging.labels import *  # noqa: F401,F403
+from .cataloging.labels import (
+    export_project as _export_project,
+    get_asset_record as _get_asset_record,
+    list_asset_metadata as _list_asset_metadata,
+    load_asset_metadata as _load_asset_metadata,
+    save_asset_metadata as _save_asset_metadata,
+    update_asset_record as _update_asset_record,
+)
+from .cataloging.labels import metadata_path
 
 
-def load_asset_metadata() -> dict:
-    """Load local tags, notes, favorites, lifecycle states, and project sets."""
-    path = metadata_path()
-    if not path.exists():
-        return {"resources": {}, "projects": {}}
-    try:
-        with open(path, "r") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return {"resources": {}, "projects": {}}
-    data.setdefault("resources", {})
-    data.setdefault("projects", {})
-    return data
+def load_asset_metadata():
+    return _load_asset_metadata(metadata_path_func=metadata_path)
 
 
 def save_asset_metadata(data: dict) -> None:
-    """Persist local resource metadata."""
-    path = metadata_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False, sort_keys=True)
+    return _save_asset_metadata(data, metadata_path_func=metadata_path)
 
 
-def resource_key(resource: str, *, source: str = "auto", repo_type: str = "auto") -> str:
-    """Normalize a resource into a metadata key."""
-    ref = parse_modely_uri(resource, source=None if source == "auto" else source, repo_type=repo_type)
-    return _ref_key(ref)
+def get_asset_record(*args, **kwargs):
+    kwargs.setdefault("metadata_path_func", metadata_path)
+    return _get_asset_record(*args, **kwargs)
 
 
-def get_asset_record(resource: str, *, source: str = "auto", repo_type: str = "auto") -> dict:
-    """Return local metadata for one resource."""
-    data = load_asset_metadata()
-    return data["resources"].get(resource_key(resource, source=source, repo_type=repo_type), _empty_record())
+def update_asset_record(*args, **kwargs):
+    kwargs.setdefault("metadata_path_func", metadata_path)
+    return _update_asset_record(*args, **kwargs)
 
 
-def update_asset_record(
-    resource: str,
-    *,
-    source: str = "auto",
-    repo_type: str = "auto",
-    add_tags: Optional[list[str]] = None,
-    remove_tags: Optional[list[str]] = None,
-    note: Optional[str] = None,
-    favorite: Optional[bool] = None,
-    status: Optional[str] = None,
-    project: Optional[str] = None,
-) -> dict:
-    """Update local metadata for a resource and return the record."""
-    data = load_asset_metadata()
-    key = resource_key(resource, source=source, repo_type=repo_type)
-    record = data["resources"].setdefault(key, _empty_record())
-    record["tags"] = sorted((set(record.get("tags") or []) | set(add_tags or [])) - set(remove_tags or []))
-    if note is not None:
-        record["note"] = note
-    if favorite is not None:
-        record["favorite"] = favorite
-    if status is not None:
-        if status not in _ALLOWED_STATUSES:
-            raise ValueError(f"Unsupported lifecycle status: {status}")
-        record["status"] = status
-    if project:
-        projects = data.setdefault("projects", {})
-        members = set(projects.get(project, []))
-        members.add(key)
-        projects[project] = sorted(members)
-        record["projects"] = sorted(set(record.get("projects") or []) | {project})
-    save_asset_metadata(data)
-    record_audit_event("label.set", resource=key, metadata={"tags": record.get("tags"), "status": record.get("status"), "projects": record.get("projects")})
-    return record
+def list_asset_metadata(*args, **kwargs):
+    kwargs.setdefault("metadata_path_func", metadata_path)
+    return _list_asset_metadata(*args, **kwargs)
 
 
-def list_asset_metadata(*, project: Optional[str] = None, favorites: bool = False) -> dict:
-    """List resources with local metadata, optionally filtered."""
-    data = load_asset_metadata()
-    resources = data.get("resources") or {}
-    if project:
-        keys = set((data.get("projects") or {}).get(project, []))
-        resources = {key: value for key, value in resources.items() if key in keys}
-    if favorites:
-        resources = {key: value for key, value in resources.items() if value.get("favorite")}
-    return {"resources": resources, "projects": data.get("projects") or {}}
-
-
-def export_project(project: str) -> dict:
-    """Export one project collection as a shareable resource set."""
-    data = load_asset_metadata()
-    keys = (data.get("projects") or {}).get(project, [])
-    resources = data.get("resources") or {}
-    return {
-        "project": project,
-        "resources": [{"key": key, **(resources.get(key) or _empty_record())} for key in keys],
-        "count": len(keys),
-    }
-
-
-def print_project_export(payload: dict, *, as_json: bool = False) -> None:
-    """Print a project export."""
-    if as_json:
-        print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
-        return
-    print(f"Project: {payload.get('project')}")
-    print(f"Resources: {payload.get('count', 0)}")
-    for item in payload.get("resources") or []:
-        tags = ", ".join(item.get("tags") or []) or "-"
-        print(f"  - {item.get('key')} [{item.get('status') or '-'}] tags={tags}")
-
-
-def print_asset_metadata(payload: dict, *, as_json: bool = False) -> None:
-    """Print local resource metadata."""
-    if as_json:
-        print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
-        return
-    resources = payload.get("resources") or {}
-    if not resources:
-        print("No resource metadata saved.")
-        return
-    for key, record in sorted(resources.items()):
-        tags = ", ".join(record.get("tags") or []) or "-"
-        projects = ", ".join(record.get("projects") or []) or "-"
-        fav = " ★" if record.get("favorite") else ""
-        print(f"{key}{fav}")
-        print(f"  Status:   {record.get('status') or '-'}")
-        print(f"  Tags:     {tags}")
-        print(f"  Projects: {projects}")
-        if record.get("note"):
-            print(f"  Note:     {record['note']}")
-
-
-def _ref_key(ref: RepoRef) -> str:
-    return f"{ref.source}:{ref.repo_type}:{ref.repo_id}"
-
-
-def _empty_record() -> dict:
-    return {"tags": [], "note": "", "favorite": False, "status": "candidate", "projects": []}
+def export_project(*args, **kwargs):
+    kwargs.setdefault("metadata_path_func", metadata_path)
+    return _export_project(*args, **kwargs)
